@@ -42,7 +42,7 @@ http.createServer((req, res) => {
   fs.stat(filePath, (err, details) => {
     if (err || !details.isFile()) {
       res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
-      return res.end("<h1>Page not found</h1><p><a href='/avontm/'>Return to Avon Toastmasters</a></p>");
+      return res.end("<h1>Page not found</h1><p><a href='/'>Return to Avon Toastmasters</a></p>");
     }
 
     res.writeHead(200, {
