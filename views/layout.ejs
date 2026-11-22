@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en-NZ">
+<head><%- include('metadata/' + pageName) %></head>
+<body>
+<%- include('partials/header', { currentPage }) %>
+<%- include('pages/' + pageName) %>
+<%- include('partials/footer') %>
+<%- include('scripts/' + pageName) %>
+</body>
+</html>
