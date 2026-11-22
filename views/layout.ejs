@@ -1,6 +1,14 @@
 <!doctype html>
 <html lang="en-NZ">
-<head><%- include('metadata/' + pageName) %></head>
+<head><%- include('metadata/' + pageName) %>
+<script async src="https://www.googletagmanager.com/gtm.js?id=GTM-KKMNLSBQ"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+</script>
+
+</head>
 <body>
 <%- include('partials/header', { currentPage }) %>
 <%- include('pages/' + pageName) %>
