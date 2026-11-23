@@ -14,6 +14,44 @@
 <div class="admin-schedule-fields"><fieldset><legend>When should it appear?</legend><div class="admin-two-fields"><div><label for="startDate">Start date <span>(leave blank for today)</span></label><input id="startDate" name="startDate" type="date" value="<%= editing ? editing.startDate : '' %>"></div><div><label for="startTime">Start time <span>(leave blank for now)</span></label><input id="startTime" name="startTime" type="time" value="<%= editing ? editing.startTime : '' %>"></div></div></fieldset><fieldset><legend>When should it disappear?</legend><div class="admin-two-fields"><div><label for="endDate">End date <span>(optional)</span></label><input id="endDate" name="endDate" type="date" value="<%= editing ? editing.endDate : '' %>"></div><div><label for="endTime">End time <span>(optional)</span></label><input id="endTime" name="endTime" type="time" value="<%= editing ? editing.endTime : '' %>"></div></div></fieldset></div><small class="admin-help">All dates and times use New Zealand local time. No start date means today and no start time means immediately. If an end date is entered without a time, it ends at 11:59 pm. Leave both end fields blank for no expiry.</small>
 <div class="admin-actions"><button class="admin-button" type="submit"><%= editing ? 'Save changes' : 'Save announcement' %> →</button><% if(editing){ %><a class="admin-secondary" href="/admin">Cancel edit</a><% } %><a class="admin-secondary" href="/" target="_blank" rel="noopener noreferrer">View website ↗</a></div></form></section>
 <aside class="admin-preview-column"><section class="admin-card admin-preview-card"><p class="admin-eyebrow">LIVE PREVIEW</p><h2>How it will look</h2><p class="admin-muted">Preview updates as you type. Save to publish.</p><div id="announcement-preview" class="admin-preview site-announcement--general"><span id="preview-label" class="admin-preview__label">ANNOUNCEMENT</span><strong id="preview-title"><%= editing ? editing.title : 'Your announcement heading' %></strong><span id="preview-message"><%= editing ? editing.message : 'Your announcement message will appear here.' %></span><span id="preview-button" class="admin-preview__button" hidden>Find out more →</span></div><p class="admin-preview-note">The banner appears below the main navigation.</p></section></aside></div>
-<section class="admin-card admin-list-card"><div class="admin-card__heading"><div><h2>Your announcements</h2><p><%= announcements.length %> saved · scheduled announcements will appear automatically. Conflicting times are blocked.</p></div></div>
-<% if (!announcements.length) { %><p class="admin-empty">No announcements saved yet. Create your first banner above.</p><% } else { %><div class="admin-announcements"><% announcements.forEach(item => { const startsAt = item.startDate ? item.startDate + 'T' + (item.startTime || '00:00') : '0000-01-01T00:00'; const endsAt = item.endDate ? item.endDate + 'T' + (item.endTime || '23:59') : ''; const status = !item.enabled ? (endsAt && endsAt <= nowNZ ? 'Expired' : (startsAt > nowNZ ? 'Scheduled' : 'Disabled')) : (startsAt > nowNZ ? 'Scheduled' : (endsAt && endsAt < nowNZ ? 'Expired' : 'Active')); %><article class="admin-announcement-row"><div class="admin-announcement-copy"><span class="admin-status admin-status--<%= status.toLowerCase() %>"><%= status %></span><h3><%= item.title %></h3><p><%= item.message %></p><small>Starts: <%= item.startDate || 'Today' %> at <%= item.startTime || 'Immediately' %> NZ time · Ends: <%= item.endDate ? item.endDate + ' at ' + (item.endTime || '23:59') : 'No expiry' %></small></div><div class="admin-row-actions"><a class="admin-secondary" href="/admin?edit=<%= encodeURIComponent(item.id) %>">Edit</a><form method="post" action="/admin/toggle"><input type="hidden" name="csrf" value="<%= csrf %>"><input type="hidden" name="id" value="<%= item.id %>"><input type="hidden" name="enabled" value="<%= item.enabled ? '' : 'on' %>"><button class="admin-small-button" type="submit"><%= item.enabled ? 'Disable' : 'Publish' %></button></form><form method="post" action="/admin/delete" onsubmit="return confirm('Delete this announcement permanently?')"><input type="hidden" name="csrf" value="<%= csrf %>"><input type="hidden" name="id" value="<%= item.id %>"><button class="admin-small-button admin-small-button--danger" type="submit">Delete</button></form></div></article><% }) %></div><% } %></section>
+<%
+const currentAnnouncements = announcements.filter(item => {
+  const endAt = item.endDate ? item.endDate + 'T' + (item.endTime || '23:59') : '';
+  return !(endAt && endAt <= nowNZ);
+});
+const expiredAnnouncements = announcements.filter(item => {
+  const endAt = item.endDate ? item.endDate + 'T' + (item.endTime || '23:59') : '';
+  return Boolean(endAt && endAt <= nowNZ);
+});
+const announcementStatus = item => {
+  const startsAt = item.startDate ? item.startDate + 'T' + (item.startTime || '00:00') : '0000-01-01T00:00';
+  const endsAt = item.endDate ? item.endDate + 'T' + (item.endTime || '23:59') : '';
+  if (!item.enabled) return 'Disabled';
+  return startsAt > nowNZ ? 'Scheduled' : (endsAt && endsAt <= nowNZ ? 'Expired' : 'Active');
+};
+const renderAnnouncementCard = item => {
+  const status = announcementStatus(item);
+  return status;
+};
+%>
+<section class="admin-card admin-list-card">
+  <div class="admin-card__heading"><div><h2>Your announcements</h2><p><strong><%= currentAnnouncements.length %></strong> current · <strong><%= expiredAnnouncements.length %></strong> expired and saved for reuse.</p></div></div>
+  <% if (!currentAnnouncements.length) { %><p class="admin-empty">No current announcements. Create one above or reuse an expired announcement below.</p><% } else { %>
+  <div class="admin-announcements"><% currentAnnouncements.forEach(item => { const status = announcementStatus(item); %>
+    <article class="admin-announcement-row">
+      <div class="admin-announcement-copy"><span class="admin-status admin-status--<%= status.toLowerCase() %>"><%= status %></span><h3><%= item.title %></h3><p><%= item.message %></p><small>Starts: <%= item.startDate || 'Today' %> at <%= item.startTime || 'Immediately' %> NZ time · Ends: <%= item.endDate ? item.endDate + ' at ' + (item.endTime || '23:59') : 'No expiry' %></small></div>
+      <div class="admin-row-actions"><a class="admin-secondary" href="/admin?edit=<%= encodeURIComponent(item.id) %>">Edit</a><form method="post" action="/admin/toggle"><input type="hidden" name="csrf" value="<%= csrf %>"><input type="hidden" name="id" value="<%= item.id %>"><input type="hidden" name="enabled" value="<%= item.enabled ? '' : 'on' %>"><button class="admin-small-button" type="submit"><%= item.enabled ? 'Disable' : 'Publish' %></button></form><form method="post" action="/admin/delete" onsubmit="return confirm('Delete this announcement permanently?')"><input type="hidden" name="csrf" value="<%= csrf %>"><input type="hidden" name="id" value="<%= item.id %>"><button class="admin-small-button admin-small-button--danger" type="submit">Delete</button></form></div>
+    </article>
+  <% }) %></div><% } %>
+</section>
+<section class="admin-card admin-list-card admin-expired-card">
+  <div class="admin-card__heading"><div><h2>Expired announcements</h2><p>Expired announcements are kept here rather than deleted. Edit one to update its dates and publish it again.</p></div><span class="admin-archive-count"><%= expiredAnnouncements.length %> archived</span></div>
+  <% if (!expiredAnnouncements.length) { %><p class="admin-empty">Nothing has expired yet. Expired announcements will automatically move here.</p><% } else { %>
+  <div class="admin-announcements"><% expiredAnnouncements.forEach(item => { %>
+    <article class="admin-announcement-row admin-announcement-row--expired">
+      <div class="admin-announcement-copy"><span class="admin-status admin-status--expired">Expired</span><h3><%= item.title %></h3><p><%= item.message %></p><small>Expired: <%= item.endDate %> at <%= item.endTime || '23:59' %> NZ time · Saved for reuse</small></div>
+      <div class="admin-row-actions"><a class="admin-secondary" href="/admin?edit=<%= encodeURIComponent(item.id) %>">Edit / reuse</a><form method="post" action="/admin/delete" onsubmit="return confirm('Permanently delete this expired announcement?')"><input type="hidden" name="csrf" value="<%= csrf %>"><input type="hidden" name="id" value="<%= item.id %>"><button class="admin-small-button admin-small-button--danger" type="submit">Delete</button></form></div>
+    </article>
+  <% }) %></div><% } %>
+</section>
 <footer class="admin-page-footer"><a href="/">← Return to Avon Toastmasters</a><span>Avon Toastmasters · Webmaster</span></footer></main></body></html>
