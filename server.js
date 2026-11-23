@@ -38,7 +38,7 @@ setInterval(() => {
 
 function cleanText(value, maxLength) {
   if (typeof value !== 'string') return '';
-  return value.replace(/[\\u0000-\\u001f\\u007f]/g, ' ').trim().slice(0, maxLength);
+  return value.replace(/[\x00-\x1F\x7F]/g, ' ').trim().slice(0, maxLength);
 }
 
 async function verifyTurnstile(token, remoteIp) {
@@ -119,7 +119,7 @@ app.post('/api/contact', async (req, res) => {
   const message = cleanText(body.message, 5000);
   const token = cleanText(body['cf-turnstile-response'], 4096);
 
-  const emailPattern = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!name || name.length < 2 || !emailPattern.test(email) ||
       !subject || subject.length < 3 || !message || message.length < 10) {
     return res.status(400).json({
@@ -184,7 +184,7 @@ app.post('/api/contact', async (req, res) => {
         message,
         '',
         `Sender IP: ${ip}`
-      ].join('\\n')
+      ].join('\n')
     });
 
     await transporter.close();
