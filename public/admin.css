@@ -79,3 +79,37 @@ body.admin-body{margin:0;background:#f3f6f6;color:var(--admin-ink);font:16px/1.6
 .admin-schedule-fields .admin-two-fields{gap:13px}
 .admin-schedule-fields label{display:block}
 .admin-schedule-fields input[type=date],.admin-schedule-fields input[type=time]{width:100%;min-width:0}
+
+
+/* Refined announcement list cards */
+.admin-list-card{margin-top:26px;padding:clamp(20px,3vw,32px)}
+.admin-list-card>.admin-card__heading{align-items:center;margin-bottom:8px}
+.admin-list-card>.admin-card__heading h2{font-size:1.4rem}
+.admin-list-card>.admin-card__heading p{margin-top:5px}
+.admin-announcements{gap:13px;padding-top:12px}
+.admin-announcement-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:22px;padding:20px 22px;background:linear-gradient(135deg,#fff 0%,#f8fafb 100%);border:1px solid #dce5e7;border-left:5px solid var(--admin-blue);border-radius:8px;box-shadow:0 5px 16px #102f4009;transition:box-shadow .18s ease,border-color .18s ease}
+.admin-announcement-row:hover{border-color:#b8cbd2;box-shadow:0 9px 22px #102f4012}
+.admin-announcement-copy h3{margin:9px 0 5px;font-size:1.08rem;line-height:1.35}
+.admin-announcement-copy p{max-width:72ch;line-height:1.5}
+.admin-announcement-copy small{display:block;margin-top:9px;padding-top:9px;border-top:1px solid #e5ebed;font-size:.78rem;line-height:1.5}
+.admin-status{padding:4px 10px;font-size:.66rem;letter-spacing:.08em}
+.admin-status--active{background:#e7f5eb;color:#21623a}
+.admin-status--scheduled{background:#fff5d9;color:#765600}
+.admin-status--expired{background:#fbeaec;color:#8a2730}
+.admin-status--disabled{background:#edf0f2;color:#53636b}
+.admin-row-actions{justify-content:flex-end;align-content:center;min-width:100px}
+.admin-row-actions .admin-secondary,.admin-small-button{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:7px 12px;border:1px solid #c9d5d9;border-radius:5px;background:#fff;color:var(--admin-blue);font-size:.8rem;font-weight:800;text-decoration:none;white-space:nowrap}
+.admin-row-actions .admin-secondary:hover,.admin-small-button:hover{background:#edf4f6;border-color:var(--admin-blue)}
+.admin-small-button--danger{color:#962b35;border-color:#e7c9cc}
+.admin-small-button--danger:hover{background:#fff0f1;border-color:#b54a55}
+.admin-empty{margin:14px 0 0;padding:28px 20px;border:1px dashed #bdcbd0;border-radius:7px;background:#f8fafb;text-align:center}
+@media(max-width:700px){
+ .admin-list-card{padding:20px}
+ .admin-announcement-row{grid-template-columns:1fr;gap:15px;padding:17px}
+ .admin-row-actions{justify-content:flex-start;min-width:0;padding-top:12px;border-top:1px solid #e5ebed}
+ .admin-announcement-copy small{overflow-wrap:anywhere}
+}
+@media(max-width:420px){
+ .admin-row-actions{gap:7px}
+ .admin-row-actions .admin-secondary,.admin-small-button{min-height:40px;padding:8px 10px}
+}
