@@ -84,7 +84,7 @@ function readAnnouncements() {
   try {
     const value = JSON.parse(fs.readFileSync(announcementFile, 'utf8'));
     if (Array.isArray(value)) return value;
-    if (value && typeof value === 'object' && value.title) return [{ ...value, id: value.id || crypto.randomUUID() }];
+    if (value && typeof value === 'object' && value.title) return [{ ...value, id: value.id || 'legacy-' + crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24) }];
   } catch {}
   return [];
 }
@@ -345,7 +345,7 @@ app.get('/admin', (req, res) => {
   const session = getAdminSession(req);
   if (!session) return res.render('admin/login', { error: '', username: process.env.ADMIN_USERNAME || 'webmaster' });
   const announcements = readAnnouncements();
-  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', nowNZ: nzDateTime() });
+  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', nowNZ: nzDateTime(), error: '' });
 });
 app.post('/admin/login', async (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
@@ -400,7 +400,11 @@ app.post('/admin/save', requireAdmin, (req, res) => {
   const index = items.findIndex(entry => entry.id === id);
   if (enabled) {
     const conflict = findAnnouncementConflict(items, item);
-    if (conflict) return res.status(409).send('Schedule conflict: "' + cleanText(conflict.title, 100) + '" is already scheduled to display during that time. Change the dates or times before publishing.');
+    if (conflict) return res.status(409).render('admin/dashboard', {
+      username: req.adminSession.username, csrf: req.adminSession.csrf, announcements: items,
+      editing: item, saved: false, nowNZ: nzDateTime(),
+      error: 'Schedule conflict: "' + cleanText(conflict.title, 100) + '" is already scheduled during this time. Change the start or end date/time before saving.'
+    });
   }
   if (index >= 0) items[index] = item; else items.unshift(item);
   writeAnnouncements(items);
@@ -414,7 +418,11 @@ app.post('/admin/toggle', requireAdmin, (req, res) => {
   const shouldEnable = req.body.enabled === 'on';
   if (shouldEnable) {
     const conflict = findAnnouncementConflict(items, item);
-    if (conflict) return res.status(409).send('Schedule conflict: "' + cleanText(conflict.title, 100) + '" is already scheduled to display during that time. Change the dates or times before publishing.');
+    if (conflict) return res.status(409).render('admin/dashboard', {
+      username: req.adminSession.username, csrf: req.adminSession.csrf, announcements: items,
+      editing: item, saved: false, nowNZ: nzDateTime(),
+      error: 'Schedule conflict: "' + cleanText(conflict.title, 100) + '" is already scheduled during this time. Edit the schedule before publishing.'
+    });
   }
   item.enabled = shouldEnable;
   writeAnnouncements(items);
