@@ -1,7 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
   const banner = document.querySelector('[data-announcement]');
   if (!banner) return;
-  const key = 'avon-announcement-dismissed';
+  // Dismiss only for this browser tab session and this specific announcement.
+  // A different announcement is always allowed to appear, and the banner returns
+  // on the visitor's next fresh browser session.
+  const id = banner.dataset.announcementId || 'default';
+  const key = 'avon-announcement-dismissed:' + id;
   if (sessionStorage.getItem(key) === '1') {
     banner.hidden = true;
     return;

@@ -1,4 +1,4 @@
-.site-announcement{position:relative;z-index:19;padding:12px 0;background:#004165;color:#fff;border-bottom:3px solid #f2df74}
+.site-announcement{position:sticky;top:0;z-index:1000;padding:12px 0;background:#004165;color:#fff;border-bottom:3px solid #f2df74}
 .site-announcement__inner{width:min(1160px,calc(100% - 44px));margin:auto;display:flex;align-items:center;gap:17px}
 .site-announcement__label{flex:0 0 auto;font:800 .68rem/1.3 "Montserrat",Arial,sans-serif;letter-spacing:.12em;color:#f2df74}
 .site-announcement__copy{display:flex;flex:1 1 auto;min-width:0;flex-wrap:wrap;align-items:baseline;gap:4px 12px;line-height:1.45}
