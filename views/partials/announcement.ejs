@@ -1,5 +1,4 @@
 <% if (announcement) { %>
-<link rel="stylesheet" href="/announcement.css">
 <div class="site-announcement site-announcement--<%= announcement.type %>" role="region" aria-label="Club announcement" data-announcement>
   <div class="site-announcement__inner">
     <span class="site-announcement__label"><%= announcement.type === 'urgent' ? 'URGENT' : announcement.type === 'important' ? 'IMPORTANT' : announcement.type === 'event' ? 'UPCOMING EVENT' : 'ANNOUNCEMENT' %></span>
