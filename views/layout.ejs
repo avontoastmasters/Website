@@ -25,11 +25,14 @@
 <% if (pageName === 'visit') { %>
 <link rel="stylesheet" href="/contact-form.css">
 <% } %>
+<% if (announcement) { %><link rel="stylesheet" href="/announcement.css"><% } %>
 </head>
 <body>
+<%- include('partials/announcement', { announcement }) %>
 <%- include('partials/header', { currentPage }) %>
 <%- include('pages/' + pageName) %>
 <%- include('partials/footer') %>
 <%- include('scripts/' + pageName) %>
+<script src="/announcement.js" defer></script>
 </body>
 </html>

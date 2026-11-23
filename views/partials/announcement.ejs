@@ -1,0 +1,15 @@
+<% if (announcement) { %>
+<div class="site-announcement site-announcement--<%= announcement.type %>" role="region" aria-label="Club announcement" data-announcement>
+  <div class="site-announcement__inner">
+    <span class="site-announcement__label"><%= announcement.type === 'urgent' ? 'URGENT' : announcement.type === 'important' ? 'IMPORTANT' : announcement.type === 'event' ? 'UPCOMING EVENT' : 'ANNOUNCEMENT' %></span>
+    <div class="site-announcement__copy">
+      <strong><%= announcement.title %></strong>
+      <span><%= announcement.message %></span>
+    </div>
+    <% if (announcement.buttonText && announcement.buttonLink) { %>
+      <a class="site-announcement__link" href="<%= announcement.buttonLink %>"<% if (/^https:\/\//i.test(announcement.buttonLink)) { %> target="_blank" rel="noopener noreferrer"<% } %>><%= announcement.buttonText %> <span aria-hidden="true">→</span></a>
+    <% } %>
+    <button class="site-announcement__dismiss" type="button" aria-label="Dismiss announcement">×</button>
+  </div>
+</div>
+<% } %>

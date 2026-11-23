@@ -5,6 +5,8 @@ const helmet = require('helmet');
 const compression = require('compression');
 const nodemailer = require('nodemailer');
 const path = require('path');
+const fs = require('node:fs');
+const crypto = require('node:crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -20,6 +22,7 @@ app.use(helmet({
 
 app.use(compression());
 app.use(express.json({ limit: '12kb', type: 'application/json' }));
+app.use(express.urlencoded({ extended: false, limit: '12kb' }));
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -68,6 +71,110 @@ async function verifyTurnstile(token, remoteIp) {
     console.error('Turnstile verification failed:', error.message);
     return false;
   }
+}
+
+
+/* Simple Avon webmaster announcement administration. */
+const announcementFile = path.join(__dirname, 'data', 'announcement.json');
+const ADMIN_COOKIE = 'avon_admin_session';
+const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
+const adminAttempts = new Map();
+
+function readAnnouncement() {
+  try {
+    const value = JSON.parse(fs.readFileSync(announcementFile, 'utf8'));
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  } catch {}
+  return { enabled: false, type: 'general', title: '', message: '', buttonText: '', buttonLink: '', startDate: '', endDate: '' };
+}
+function writeAnnouncement(value) {
+  fs.mkdirSync(path.dirname(announcementFile), { recursive: true, mode: 0o750 });
+  const temporaryFile = announcementFile + '.tmp';
+  fs.writeFileSync(temporaryFile, JSON.stringify(value, null, 2) + '\n', { mode: 0o640 });
+  fs.renameSync(temporaryFile, announcementFile);
+}
+function getPublicAnnouncement() {
+  const item = readAnnouncement();
+  if (item.enabled !== true || !item.title || !item.message) return null;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  if ((item.startDate && today < item.startDate) || (item.endDate && today > item.endDate)) return null;
+  return item;
+}
+function getCookie(req, name) {
+  for (const cookie of (req.headers.cookie || '').split(';')) {
+    const separator = cookie.indexOf('=');
+    if (separator >= 0 && cookie.slice(0, separator).trim() === name) return cookie.slice(separator + 1).trim();
+  }
+  return '';
+}
+function createAdminToken(payload) {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', process.env.ADMIN_SESSION_SECRET).update(body).digest('base64url');
+  return body + '.' + signature;
+}
+function getAdminSession(req) {
+  const token = getCookie(req, ADMIN_COOKIE);
+  const separator = token.lastIndexOf('.');
+  if (separator < 1 || !process.env.ADMIN_SESSION_SECRET) return null;
+  const body = token.slice(0, separator);
+  const supplied = Buffer.from(token.slice(separator + 1));
+  const expected = Buffer.from(crypto.createHmac('sha256', process.env.ADMIN_SESSION_SECRET).update(body).digest('base64url'));
+  if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    return payload && payload.expiresAt > Date.now() && payload.username && payload.csrf ? payload : null;
+  } catch { return null; }
+}
+function setAdminCookie(res, payload) {
+  res.setHeader('Set-Cookie', ADMIN_COOKIE + '=' + createAdminToken(payload) + '; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=28800');
+}
+function clearAdminCookie(res) {
+  res.setHeader('Set-Cookie', ADMIN_COOKIE + '=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+}
+function adminReady() {
+  return Boolean(process.env.ADMIN_PASSWORD_HASH && process.env.ADMIN_SESSION_SECRET && process.env.ADMIN_SESSION_SECRET.length >= 32);
+}
+function requireAdmin(req, res, next) {
+  const session = getAdminSession(req);
+  if (!session) return res.redirect(303, '/admin');
+  req.adminSession = session;
+  next();
+}
+function validCsrf(req, res) {
+  const session = getAdminSession(req);
+  if (!session || typeof req.body.csrf !== 'string' || req.body.csrf !== session.csrf) {
+    res.status(403).send('Your session expired. Please sign in again.');
+    return false;
+  }
+  return true;
+}
+function safeAnnouncementLink(value) {
+  const link = cleanText(value, 500);
+  if (!link) return '';
+  if (link.startsWith('/') && !link.startsWith('//') && !link.includes('\\')) return link;
+  try {
+    const parsed = new URL(link);
+    return parsed.protocol === 'https:' ? parsed.toString() : null;
+  } catch { return null; }
+}
+function verifyAdminPassword(password) {
+  const parts = (process.env.ADMIN_PASSWORD_HASH || '').split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt' || !/^[a-f0-9]{32,}$/.test(parts[1]) || !/^[a-f0-9]{128}$/.test(parts[2])) return Promise.resolve(false);
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, Buffer.from(parts[1], 'hex'), 64, (error, derived) => {
+      if (error) return reject(error);
+      const expected = Buffer.from(parts[2], 'hex');
+      resolve(derived.length === expected.length && crypto.timingSafeEqual(derived, expected));
+    });
+  });
+}
+function limitAdminLogin(ip) {
+  const now = Date.now();
+  let record = adminAttempts.get(ip);
+  if (!record || now - record.startedAt >= RATE_WINDOW_MS) record = { startedAt: now, count: 0 };
+  record.count += 1;
+  adminAttempts.set(ip, record);
+  return record.count <= 5;
 }
 
 app.get('/robots.txt', (req, res) => {
@@ -201,6 +308,59 @@ app.post('/api/contact', async (req, res) => {
   }
 });
 
+
+/* Private webmaster dashboard. It is not linked publicly or listed in the sitemap. */
+app.use('/admin', (req, res, next) => {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+app.get('/admin', (req, res) => {
+  if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
+  const session = getAdminSession(req);
+  if (!session) return res.render('admin/login', { error: '', username: process.env.ADMIN_USERNAME || 'webmaster' });
+  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcement: readAnnouncement(), saved: req.query.saved === '1' });
+});
+app.post('/admin/login', async (req, res) => {
+  if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  if (!limitAdminLogin(ip)) return res.status(429).render('admin/login', { error: 'Too many sign-in attempts. Please wait 15 minutes and try again.', username: process.env.ADMIN_USERNAME || 'webmaster' });
+  const username = cleanText(req.body.username, 80);
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
+  const expectedUsername = process.env.ADMIN_USERNAME || 'webmaster';
+  const suppliedUser = Buffer.from(username);
+  const expectedUser = Buffer.from(expectedUsername);
+  const usernameMatches = suppliedUser.length === expectedUser.length && crypto.timingSafeEqual(suppliedUser, expectedUser);
+  let passwordMatches = false;
+  try { passwordMatches = await verifyAdminPassword(password); }
+  catch (error) { console.error('Webmaster password verification failed:', error.message); }
+  if (!usernameMatches || !passwordMatches) return res.status(401).render('admin/login', { error: 'The username or password was incorrect.', username: '' });
+  adminAttempts.delete(ip);
+  const csrf = crypto.randomBytes(24).toString('hex');
+  setAdminCookie(res, { username: expectedUsername, csrf, expiresAt: Date.now() + ADMIN_SESSION_MS });
+  res.redirect(303, '/admin');
+});
+app.post('/admin/save', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const title = cleanText(req.body.title, 100);
+  const message = cleanText(req.body.message, 500);
+  const buttonText = cleanText(req.body.buttonText, 40);
+  const buttonLink = safeAnnouncementLink(req.body.buttonLink);
+  const type = ['general', 'important', 'event', 'urgent'].includes(req.body.type) ? req.body.type : 'general';
+  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body.startDate || '') ? req.body.startDate : '';
+  const endDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body.endDate || '') ? req.body.endDate : '';
+  if (!title || !message) return res.status(400).send('Please enter both an announcement heading and message.');
+  if (buttonLink === null) return res.status(400).send('Use a local page path or a secure https:// button link.');
+  if (startDate && endDate && endDate < startDate) return res.status(400).send('The expiry date must be on or after the start date.');
+  writeAnnouncement({ enabled: req.body.enabled === 'on', type, title, message, buttonText: buttonLink ? buttonText : '', buttonLink, startDate, endDate, updatedAt: new Date().toISOString() });
+  res.redirect(303, '/admin?saved=1');
+});
+app.post('/admin/logout', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  clearAdminCookie(res);
+  res.redirect(303, '/admin');
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
   dotfiles: 'deny'
@@ -223,7 +383,8 @@ for (const [url, pageName] of Object.entries(pages)) {
   app.get(url, (req, res, next) => {
     res.render('layout', {
       pageName,
-      currentPage: pageName
+      currentPage: pageName,
+      announcement: getPublicAnnouncement()
     }, (err, html) => {
       if (err) return next(err);
       res.type('html').send(html);

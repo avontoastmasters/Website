@@ -1,0 +1,21 @@
+.site-announcement{position:relative;z-index:19;padding:12px 0;background:#004165;color:#fff;border-bottom:3px solid #f2df74}
+.site-announcement__inner{width:min(1160px,calc(100% - 44px));margin:auto;display:flex;align-items:center;gap:17px}
+.site-announcement__label{flex:0 0 auto;font:800 .68rem/1.3 "Montserrat",Arial,sans-serif;letter-spacing:.12em;color:#f2df74}
+.site-announcement__copy{display:flex;flex:1 1 auto;min-width:0;flex-wrap:wrap;align-items:baseline;gap:4px 12px;line-height:1.45}
+.site-announcement__copy strong{font:800 .94rem/1.4 "Montserrat",Arial,sans-serif;color:#fff}
+.site-announcement__copy>span{font-size:.93rem;color:#f2f6f7}
+.site-announcement__link{flex:0 0 auto;color:#004165;background:#f2df74;border-radius:4px;padding:8px 13px;text-decoration:none;font-size:.82rem;font-weight:800;white-space:nowrap}
+.site-announcement__link:hover{background:#fff}
+.site-announcement__dismiss{flex:0 0 auto;width:30px;height:30px;border:1px solid #ffffff70;border-radius:50%;background:transparent;color:#fff;font-size:1.35rem;line-height:1;cursor:pointer}
+.site-announcement__dismiss:hover{background:#ffffff20}
+.site-announcement--important{background:#f2df74;color:#003650;border-bottom-color:#004165}
+.site-announcement--important .site-announcement__label,.site-announcement--important .site-announcement__copy strong{color:#003650}
+.site-announcement--important .site-announcement__copy>span{color:#263f4b}
+.site-announcement--important .site-announcement__link{background:#004165;color:#fff}
+.site-announcement--important .site-announcement__dismiss{border-color:#00416580;color:#004165}
+.site-announcement--event{background:#772432;border-bottom-color:#f2df74}
+.site-announcement--event .site-announcement__label{color:#f2df74}
+.site-announcement--urgent{background:#8d1f2d;border-bottom-color:#f2df74}
+.site-announcement--urgent .site-announcement__label{color:#ffe98a}
+@media(max-width:700px){.site-announcement{padding:12px 0}.site-announcement__inner{width:calc(100% - 30px);display:grid;grid-template-columns:1fr auto;gap:6px 10px}.site-announcement__label{grid-column:1}.site-announcement__dismiss{grid-column:2;grid-row:1;width:28px;height:28px}.site-announcement__copy{grid-column:1/-1;display:block;padding-right:34px}.site-announcement__copy strong{display:block;margin-bottom:2px}.site-announcement__link{grid-column:1;justify-self:start;margin-top:4px}.site-announcement__dismiss{grid-row:1}}
+@media(prefers-reduced-motion:reduce){.site-announcement *{transition:none!important}}
