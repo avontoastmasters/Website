@@ -27,9 +27,11 @@
 <% } %>
 </head>
 <body>
+<%- include('partials/announcement', { announcement }) %>
 <%- include('partials/header', { currentPage }) %>
 <%- include('pages/' + pageName) %>
 <%- include('partials/footer') %>
 <%- include('scripts/' + pageName) %>
+<script src="/announcement.js" defer></script>
 </body>
 </html>
