@@ -1,5 +1,5 @@
 <% if (announcement) { %>
-<div class="site-announcement site-announcement--<%= announcement.type %>" role="region" aria-label="Club announcement" data-announcement>
+<div class="site-announcement site-announcement--<%= announcement.type %>" role="region" aria-label="Club announcement" data-announcement data-announcement-id="<%= announcement.id || announcement.updatedAt || announcement.title %>">
   <div class="site-announcement__inner">
     <span class="site-announcement__label"><%= announcement.type === 'urgent' ? 'URGENT' : announcement.type === 'important' ? 'IMPORTANT' : announcement.type === 'event' ? 'UPCOMING EVENT' : 'ANNOUNCEMENT' %></span>
     <div class="site-announcement__copy">
