@@ -19,7 +19,9 @@
   gtag('js', new Date());
 </script>
 
-<script type="application/ld+json"><%- JSON.stringify({ "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://toastmasters.net.nz/" }, ...(pageName === 'index' ? [] : [{ "@type": "ListItem", "position": 2, "name": ({about:"About Avon",meetings:"Meetings",experience:"What to Expect",benefits:"Benefits",visit:"Visit Avon",join:"Join Avon",faq:"FAQs"}[pageName] || "Avon Toastmasters"), "item": "https://toastmasters.net.nz/" + pageName + ".html" }])] }) %></script>
+<% if (pageName !== 'index') { %>
+<script type="application/ld+json"><%- JSON.stringify({ "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://toastmasters.net.nz/" }, { "@type": "ListItem", "position": 2, "name": ({about:"About Avon",meetings:"Meetings",experience:"What to Expect",benefits:"Benefits",visit:"Visit Avon",join:"Join Avon",faq:"FAQs"}[pageName] || "Avon Toastmasters"), "item": "https://toastmasters.net.nz/" + pageName + ".html" }] }) %></script>
+<% } %>
 </head>
 <body>
 <%- include('partials/header', { currentPage }) %>
