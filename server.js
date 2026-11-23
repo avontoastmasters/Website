@@ -100,26 +100,6 @@ function getPublicAnnouncement() {
   return items.find(item => item.enabled === true && item.title && item.message &&
     (!item.startDate || today >= item.startDate) && (!item.endDate || today <= item.endDate)) || null;
 }
-function readAnnouncements() {
-  try {
-    const value = JSON.parse(fs.readFileSync(announcementFile, 'utf8'));
-    if (Array.isArray(value)) return value;
-    if (value && typeof value === 'object' && value.title) return [{ ...value, id: value.id || crypto.randomUUID() }];
-  } catch {}
-  return [];
-}
-function writeAnnouncements(items) {
-  fs.mkdirSync(path.dirname(announcementFile), { recursive: true, mode: 0o750 });
-  const temporaryFile = announcementFile + '.tmp';
-  fs.writeFileSync(temporaryFile, JSON.stringify(items, null, 2) + '\n', { mode: 0o640 });
-  fs.renameSync(temporaryFile, announcementFile);
-}
-function getPublicAnnouncement() {
-  const items = readAnnouncements();
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  return items.find(item => item.enabled === true && item.title && item.message &&
-    (!item.startDate || today >= item.startDate) && (!item.endDate || today <= item.endDate)) || null;
-}
 function getCookie(req, name) {
   for (const cookie of (req.headers.cookie || '').split(';')) {
     const separator = cookie.indexOf('=');
