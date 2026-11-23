@@ -115,7 +115,7 @@ function announcementsOverlap(first, second) {
   const secondStart = announcementStart(second);
   const firstEnd = announcementEnd(first) || '9999-12-31T23:59';
   const secondEnd = announcementEnd(second) || '9999-12-31T23:59';
-  return firstStart <= secondEnd && secondStart <= firstEnd;
+  return firstStart < secondEnd && secondStart < firstEnd;
 }
 function findAnnouncementConflict(items, candidate) {
   return items.find(item => item.enabled && item.id !== candidate.id && announcementsOverlap(item, candidate));
@@ -123,7 +123,7 @@ function findAnnouncementConflict(items, candidate) {
 function getPublicAnnouncement() {
   const now = nzDateTime();
   return readAnnouncements().find(item => item.enabled === true && item.title && item.message &&
-    announcementStart(item) <= now && (!announcementEnd(item) || now <= announcementEnd(item))) || null;
+    announcementStart(item) <= now && (!announcementEnd(item) || now < announcementEnd(item))) || null;
 }
 function getCookie(req, name) {
   for (const cookie of (req.headers.cookie || '').split(';')) {
@@ -381,10 +381,16 @@ app.post('/admin/save', requireAdmin, (req, res) => {
   const validDate = value => datePattern.test(value) && !Number.isNaN(Date.parse(value + 'T00:00:00Z')) && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
   const suppliedStartDate = cleanText(req.body.startDate, 10);
   const suppliedStartTime = cleanText(req.body.startTime, 5);
+  if ((suppliedStartDate && !validDate(suppliedStartDate)) || (suppliedStartTime && !timePattern.test(suppliedStartTime))) {
+    return res.status(400).send('Please enter a valid New Zealand start date and time.');
+  }
   const startDate = validDate(suppliedStartDate) ? suppliedStartDate : nowNZ.slice(0, 10);
   const startTime = timePattern.test(suppliedStartTime) ? suppliedStartTime : (startDate === nowNZ.slice(0, 10) ? nowNZ.slice(11, 16) : '00:00');
   const suppliedEndDate = cleanText(req.body.endDate, 10);
   const suppliedEndTime = cleanText(req.body.endTime, 5);
+  if ((suppliedEndDate && !validDate(suppliedEndDate)) || (suppliedEndTime && !timePattern.test(suppliedEndTime))) {
+    return res.status(400).send('Please enter a valid New Zealand end date and time.');
+  }
   const endDate = validDate(suppliedEndDate) ? suppliedEndDate : (timePattern.test(suppliedEndTime) ? startDate : '');
   const endTime = endDate ? (timePattern.test(suppliedEndTime) ? suppliedEndTime : '23:59') : '';
   if (!title || !message) return res.status(400).send('Please enter both an announcement heading and message.');
