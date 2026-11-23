@@ -21,17 +21,14 @@
 }
 .contact-form {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 19px;
   margin-top: 28px;
 }
 .contact-field {
   display: grid;
   min-width: 0;
   gap: 8px;
-}
-.contact-field:nth-of-type(5) {
-  grid-column: 1 / -1;
 }
 .contact-field label {
   color: #173747;
@@ -87,12 +84,6 @@
   width: 1px !important;
   height: 1px !important;
   overflow: hidden !important;
-}
-.cf-turnstile,
-.contact-privacy,
-.contact-submit,
-.contact-form-status {
-  grid-column: 1 / -1;
 }
 .cf-turnstile {
   min-height: 65px;
@@ -161,17 +152,6 @@
   .contact-form-card {
     margin: 32px 0 25px;
     padding: 23px 18px;
-  }
-  .contact-form {
-    grid-template-columns: 1fr;
-    gap: 17px;
-  }
-  .contact-field:nth-of-type(5),
-  .cf-turnstile,
-  .contact-privacy,
-  .contact-submit,
-  .contact-form-status {
-    grid-column: 1;
   }
   .contact-submit {
     width: 100%;
