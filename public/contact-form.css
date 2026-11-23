@@ -139,6 +139,40 @@
 .visit-card .arrow-link {
   text-underline-offset: 4px;
 }
+.visit-contact-person {
+  margin-top: 34px;
+  padding-top: 26px;
+  border-top: 1px solid rgb(255 255 255 / 24%);
+}
+.visit-contact-person .eyebrow {
+  margin-bottom: 12px;
+  color: var(--gold);
+}
+.visit-contact-person h4 {
+  margin: 0 0 10px;
+  color: #fff;
+  font-size: 1.2rem;
+  line-height: 1.35;
+}
+.visit-contact-person p:not(.eyebrow) {
+  margin: 0 0 14px;
+  color: rgb(255 255 255 / 88%);
+  font-size: .96rem;
+  line-height: 1.65;
+}
+.visit-contact-phone {
+  display: inline-block;
+  color: #fff;
+  font-weight: 800;
+  text-decoration: underline;
+  text-decoration-color: var(--gold);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+.visit-contact-phone:hover {
+  color: var(--gold);
+}
+
 @media (max-width: 900px) {
   .visit-grid {
     grid-template-columns: 1fr;
