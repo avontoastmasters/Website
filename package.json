@@ -1,6 +1,6 @@
 {
   "name": "avon-toastmasters-website",
-  "version": "2.0.0",
+  "version": "3.1.0",
   "private": true,
   "description": "Multi-page Avon Toastmasters club website",
   "engines": {
@@ -9,12 +9,13 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check script.js"
+    "check": "node --check server.js && node --check script.js && node --check public/visit-contact.js"
   },
   "dependencies": {
     "compression": "^1.8.2",
     "ejs": "^7.0.2",
     "express": "^5.3.0",
-    "helmet": "^8.3.0"
+    "helmet": "^8.3.0",
+    "nodemailer": "^7.0.10"
   }
 }
