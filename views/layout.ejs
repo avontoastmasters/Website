@@ -25,6 +25,7 @@
 <% if (pageName === 'visit') { %>
 <link rel="stylesheet" href="/contact-form.css">
 <% } %>
+<% if (announcement) { %><link rel="stylesheet" href="/announcement.css"><% } %>
 </head>
 <body>
 <%- include('partials/announcement', { announcement }) %>
