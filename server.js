@@ -31,9 +31,10 @@ app.use(express.static(path.join(__dirname, 'public'), {
   dotfiles: 'deny'
 }));
 
+app.get('/index.html', (req, res) => res.redirect(301, '/'));
+
 const pages = {
   '/': 'index',
-  '/index.html': 'index',
   '/about.html': 'about',
   '/benefits.html': 'benefits',
   '/experience.html': 'experience',
