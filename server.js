@@ -18,6 +18,14 @@ app.use(compression());
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').sendFile(path.join(__dirname, 'robots.txt'));
+});
+
+app.get('/sitemap.xml', (req, res) => {
+  res.type('application/xml').sendFile(path.join(__dirname, 'sitemap.xml'));
+});
+
 app.get(['/health', '/healthz'], (req, res) => {
   res.json({
     status: 'ok',
