@@ -15,6 +15,12 @@ app.disable('x-powered-by');
 // The app is behind the site's Nginx reverse proxy.
 app.set('trust proxy', 1);
 
+// Redirect the alternate www hostname to the canonical non-www domain.
+app.use((req, res, next) => {
+  if (req.hostname === 'www.toastmasters.net.nz') return res.redirect(301, 'https://toastmasters.net.nz' + req.originalUrl);
+  next();
+});
+
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
