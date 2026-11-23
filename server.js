@@ -117,8 +117,13 @@ function announcementsOverlap(first, second) {
   const secondEnd = announcementEnd(second) || '9999-12-31T23:59';
   return firstStart < secondEnd && secondStart < firstEnd;
 }
+function isAnnouncementExpired(item, now = nzDateTime()) {
+  const end = announcementEnd(item);
+  return Boolean(end && end <= now);
+}
 function findAnnouncementConflict(items, candidate) {
-  return items.find(item => item.enabled && item.id !== candidate.id && announcementsOverlap(item, candidate));
+  const now = nzDateTime();
+  return items.find(item => item.enabled && item.id !== candidate.id && !isAnnouncementExpired(item, now) && announcementsOverlap(item, candidate));
 }
 function getPublicAnnouncement() {
   const now = nzDateTime();
