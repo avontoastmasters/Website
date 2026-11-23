@@ -1,1 +1,83 @@
-<main id="main-content"><section class="page-hero"><div class="wrap"><p class="eyebrow">YOUR FIRST VISIT</p><h1>Visit Avon Toastmasters<br><em>in Christchurch.</em></h1><p class="lead">The best way to understand Toastmasters is to experience a meeting. Come as a guest, meet our members and see what happens.</p></div></section><section class="section"><div class="wrap visit-grid"><div class="visit-main"><p class="eyebrow blue">YOU ARE INVITED</p><h2>Come along and<br><em>see for yourself.</em></h2><p class="large">You do not need to book a speech, prepare anything or decide whether to join before you arrive.</p><p>Let us know you are interested and we can help you find the next meeting. If plans change, please check the official club listing for the latest details.</p><a class="btn btn-blue" href="mailto:hello@toastmasters.net.nz?subject=Visiting%20Avon%20Toastmasters">Email the club <span>→</span></a><p class="muted">Email: <a href="mailto:hello@toastmasters.net.nz">hello@toastmasters.net.nz</a><br>Lyn – VPE · <a href="tel:+64274785322">0274785322</a></p><p><a class="arrow-link" href="/faq.html">Have a question? Visit our FAQs →</a></p></div><aside class="visit-card"><p class="eyebrow">MEETING DETAILS</p><h3>Avon Toastmasters</h3><p><b>When</b><br>First, second and fourth Tuesdays<br>7:00 pm</p><p><b>Where</b><br>St Albans Community Centre<br>1049 Colombo Street<br>St Albans, Christchurch 8014</p><a class="arrow-link" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=St+Albans+Community+Centre+1049+Colombo+Street+Christchurch">Directions to meeting venue ↗</a><p><b>Car parking</b><br>126 Caledonian Road, Christchurch</p><a class="arrow-link" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/search/?api=1&query=126+Caledonian+Road+Christchurch">Directions to car parking ↗</a></aside></div></section></main>
+<main id="main-content">
+  <section class="page-hero">
+    <div class="wrap">
+      <p class="eyebrow">YOUR FIRST VISIT</p>
+      <h1>Visit Avon Toastmasters<br><em>in Christchurch.</em></h1>
+      <p class="lead">The best way to understand Toastmasters is to experience a meeting. Come as a guest, meet our members and see what happens.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap visit-grid">
+      <div class="visit-main">
+        <p class="eyebrow blue">YOU ARE INVITED</p>
+        <h2>Come along and<br><em>see for yourself.</em></h2>
+        <p class="large">You do not need to book a speech, prepare anything or decide whether to join before you arrive.</p>
+        <p>Let us know you are interested and we can help you find the next meeting. If plans change, please check the official club listing for the latest details.</p>
+
+        <section class="contact-form-card" aria-labelledby="contact-form-title">
+          <p class="eyebrow blue">GET IN TOUCH</p>
+          <h2 id="contact-form-title">Send us a message.</h2>
+          <p>Have a question about visiting, meetings or membership? Send the club a message and we'll get back to you.</p>
+
+          <form id="visit-contact-form" class="contact-form" action="/api/contact" method="post" novalidate>
+            <div class="contact-field">
+              <label for="contact-name">Your name <span aria-hidden="true">*</span></label>
+              <input id="contact-name" name="name" type="text" autocomplete="name" maxlength="100" required>
+            </div>
+
+            <div class="contact-field">
+              <label for="contact-email">Email address <span aria-hidden="true">*</span></label>
+              <input id="contact-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+            </div>
+
+            <div class="contact-field">
+              <label for="contact-phone">Phone number <span class="optional">(optional)</span></label>
+              <input id="contact-phone" name="phone" type="tel" autocomplete="tel" maxlength="40">
+            </div>
+
+            <div class="contact-field">
+              <label for="contact-subject">What is your message about? <span aria-hidden="true">*</span></label>
+              <select id="contact-subject" name="subject" required>
+                <option value="">Choose a topic</option>
+                <option value="Visiting a meeting">Visiting a meeting</option>
+                <option value="Meeting information">Meeting information</option>
+                <option value="Membership">Membership</option>
+                <option value="General enquiry">General enquiry</option>
+              </select>
+            </div>
+
+            <div class="contact-field">
+              <label for="contact-message">Your message <span aria-hidden="true">*</span></label>
+              <textarea id="contact-message" name="message" rows="6" maxlength="5000" required></textarea>
+            </div>
+
+            <div class="contact-honeypot" aria-hidden="true">
+              <label for="contact-website">Leave this field empty</label>
+              <input id="contact-website" name="website_url" type="text" tabindex="-1" autocomplete="off">
+            </div>
+
+            <div class="cf-turnstile" data-sitekey="0x4AAAAAAGOdEcQMTT3VMD9-" data-action="contact" data-theme="light"></div>
+
+            <p class="contact-privacy">Your details will only be used to respond to your enquiry. The security check helps protect this form from automated spam.</p>
+            <button class="btn btn-blue contact-submit" type="submit">Send message <span aria-hidden="true">→</span></button>
+            <p id="contact-form-status" class="contact-form-status" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+
+        <p class="muted">Prefer email? <a href="mailto:hello@toastmasters.net.nz">hello@toastmasters.net.nz</a><br>Lyn – VPE · <a href="tel:+64274785322">0274785322</a></p>
+        <p><a class="arrow-link" href="/faq.html">Have a question? Visit our FAQs →</a></p>
+      </div>
+
+      <aside class="visit-card">
+        <p class="eyebrow">MEETING DETAILS</p>
+        <h3>Avon Toastmasters</h3>
+        <p><b>When</b><br>First, second and fourth Tuesdays<br>7:00 pm</p>
+        <p><b>Where</b><br>St Albans Community Centre<br>1049 Colombo Street<br>St Albans, Christchurch 8014</p>
+        <a class="arrow-link" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=St+Albans+Community+Centre+1049+Colombo+Street+Christchurch">Directions to meeting venue ↗</a>
+        <p><b>Car parking</b><br>126 Caledonian Road, Christchurch</p>
+        <a class="arrow-link" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/search/?api=1&query=126+Caledonian+Road+Christchurch">Directions to car parking ↗</a>
+      </aside>
+    </div>
+  </section>
+</main>
