@@ -376,19 +376,20 @@ app.post('/admin/save', requireAdmin, (req, res) => {
   const buttonLink = safeAnnouncementLink(req.body.buttonLink);
   const type = ['general', 'important', 'event', 'urgent'].includes(req.body.type) ? req.body.type : 'general';
   const nowNZ = nzDateTime();
-  const datePattern = /^\\d{4}-\\d{2}-\\d{2}$/;
-  const timePattern = /^\\d{2}:\\d{2}$/;
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  const validDate = value => datePattern.test(value) && !Number.isNaN(Date.parse(value + 'T00:00:00Z')) && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
   const suppliedStartDate = cleanText(req.body.startDate, 10);
   const suppliedStartTime = cleanText(req.body.startTime, 5);
-  const startDate = datePattern.test(suppliedStartDate) ? suppliedStartDate : nowNZ.slice(0, 10);
+  const startDate = validDate(suppliedStartDate) ? suppliedStartDate : nowNZ.slice(0, 10);
   const startTime = timePattern.test(suppliedStartTime) ? suppliedStartTime : (startDate === nowNZ.slice(0, 10) ? nowNZ.slice(11, 16) : '00:00');
   const suppliedEndDate = cleanText(req.body.endDate, 10);
   const suppliedEndTime = cleanText(req.body.endTime, 5);
-  const endDate = datePattern.test(suppliedEndDate) ? suppliedEndDate : (timePattern.test(suppliedEndTime) ? startDate : '');
+  const endDate = validDate(suppliedEndDate) ? suppliedEndDate : (timePattern.test(suppliedEndTime) ? startDate : '');
   const endTime = endDate ? (timePattern.test(suppliedEndTime) ? suppliedEndTime : '23:59') : '';
   if (!title || !message) return res.status(400).send('Please enter both an announcement heading and message.');
   if (buttonLink === null) return res.status(400).send('Use a local page path or a secure https:// button link.');
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(startDate) || !timePattern.test(startTime) || (endDate && (!datePattern.test(endDate) || !timePattern.test(endTime)))) {
+  if (!validDate(startDate) || !timePattern.test(startTime) || (endDate && (!validDate(endDate) || !timePattern.test(endTime)))) {
     return res.status(400).send('Please enter valid New Zealand start and end dates and times.');
   }
   if (endDate && endDate + 'T' + endTime < startDate + 'T' + startTime) {
