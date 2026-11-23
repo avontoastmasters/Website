@@ -473,7 +473,8 @@ const pages = {
   '/faq.html': 'faq',
   '/join.html': 'join',
   '/meetings.html': 'meetings',
-  '/visit.html': 'visit'
+  '/visit.html': 'visit',
+  '/public-speaking-christchurch.html': 'public-speaking-christchurch'
 };
 
 for (const [url, pageName] of Object.entries(pages)) {
