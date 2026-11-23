@@ -94,11 +94,36 @@ function writeAnnouncements(items) {
   fs.writeFileSync(temporaryFile, JSON.stringify(items, null, 2) + '\n', { mode: 0o640 });
   fs.renameSync(temporaryFile, announcementFile);
 }
+function nzDateTime(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return value.year + '-' + value.month + '-' + value.day + 'T' + value.hour + ':' + value.minute;
+}
+function announcementStart(item) {
+  if (item.startDate) return item.startDate + 'T' + (item.startTime || '00:00');
+  return '0000-01-01T00:00';
+}
+function announcementEnd(item) {
+  if (!item.endDate) return null;
+  return item.endDate + 'T' + (item.endTime || '23:59');
+}
+function announcementsOverlap(first, second) {
+  const firstStart = announcementStart(first);
+  const secondStart = announcementStart(second);
+  const firstEnd = announcementEnd(first) || '9999-12-31T23:59';
+  const secondEnd = announcementEnd(second) || '9999-12-31T23:59';
+  return firstStart <= secondEnd && secondStart <= firstEnd;
+}
+function findAnnouncementConflict(items, candidate) {
+  return items.find(item => item.enabled && item.id !== candidate.id && announcementsOverlap(item, candidate));
+}
 function getPublicAnnouncement() {
-  const items = readAnnouncements();
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  return items.find(item => item.enabled === true && item.title && item.message &&
-    (!item.startDate || today >= item.startDate) && (!item.endDate || today <= item.endDate)) || null;
+  const now = nzDateTime();
+  return readAnnouncements().find(item => item.enabled === true && item.title && item.message &&
+    announcementStart(item) <= now && (!announcementEnd(item) || now <= announcementEnd(item))) || null;
 }
 function getCookie(req, name) {
   for (const cookie of (req.headers.cookie || '').split(';')) {
@@ -319,7 +344,8 @@ app.get('/admin', (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
   const session = getAdminSession(req);
   if (!session) return res.render('admin/login', { error: '', username: process.env.ADMIN_USERNAME || 'webmaster' });
-  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements: readAnnouncements(), editing: readAnnouncements().find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1' });
+  const announcements = readAnnouncements();
+  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', nowNZ: nzDateTime() });
 });
 app.post('/admin/login', async (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
@@ -349,16 +375,33 @@ app.post('/admin/save', requireAdmin, (req, res) => {
   const buttonText = cleanText(req.body.buttonText, 40);
   const buttonLink = safeAnnouncementLink(req.body.buttonLink);
   const type = ['general', 'important', 'event', 'urgent'].includes(req.body.type) ? req.body.type : 'general';
-  const startDate = /^\\d{4}-\\d{2}-\\d{2}$/.test(req.body.startDate || '') ? req.body.startDate : '';
-  const endDate = /^\\d{4}-\\d{2}-\\d{2}$/.test(req.body.endDate || '') ? req.body.endDate : '';
+  const nowNZ = nzDateTime();
+  const datePattern = /^\\d{4}-\\d{2}-\\d{2}$/;
+  const timePattern = /^\\d{2}:\\d{2}$/;
+  const suppliedStartDate = cleanText(req.body.startDate, 10);
+  const suppliedStartTime = cleanText(req.body.startTime, 5);
+  const startDate = datePattern.test(suppliedStartDate) ? suppliedStartDate : nowNZ.slice(0, 10);
+  const startTime = timePattern.test(suppliedStartTime) ? suppliedStartTime : (startDate === nowNZ.slice(0, 10) ? nowNZ.slice(11, 16) : '00:00');
+  const suppliedEndDate = cleanText(req.body.endDate, 10);
+  const suppliedEndTime = cleanText(req.body.endTime, 5);
+  const endDate = datePattern.test(suppliedEndDate) ? suppliedEndDate : (timePattern.test(suppliedEndTime) ? startDate : '');
+  const endTime = endDate ? (timePattern.test(suppliedEndTime) ? suppliedEndTime : '23:59') : '';
   if (!title || !message) return res.status(400).send('Please enter both an announcement heading and message.');
   if (buttonLink === null) return res.status(400).send('Use a local page path or a secure https:// button link.');
-  if (startDate && endDate && endDate < startDate) return res.status(400).send('The expiry date must be on or after the start date.');
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(startDate) || !timePattern.test(startTime) || (endDate && (!datePattern.test(endDate) || !timePattern.test(endTime)))) {
+    return res.status(400).send('Please enter valid New Zealand start and end dates and times.');
+  }
+  if (endDate && endDate + 'T' + endTime < startDate + 'T' + startTime) {
+    return res.status(400).send('The end date and time must be after the start date and time.');
+  }
   const enabled = req.body.enabled === 'on';
-  const item = { id, enabled, type, title, message, buttonText: buttonLink ? buttonText : '', buttonLink, startDate, endDate, updatedAt: new Date().toISOString() };
+  const item = { id, enabled, type, title, message, buttonText: buttonLink ? buttonText : '', buttonLink, startDate, startTime, endDate, endTime, updatedAt: new Date().toISOString() };
   const index = items.findIndex(entry => entry.id === id);
+  if (enabled) {
+    const conflict = findAnnouncementConflict(items, item);
+    if (conflict) return res.status(409).send('Schedule conflict: "' + cleanText(conflict.title, 100) + '" is already scheduled to display during that time. Change the dates or times before publishing.');
+  }
   if (index >= 0) items[index] = item; else items.unshift(item);
-  if (enabled) for (const entry of items) if (entry.id !== id) entry.enabled = false;
   writeAnnouncements(items);
   res.redirect(303, '/admin?saved=1');
 });
@@ -367,8 +410,12 @@ app.post('/admin/toggle', requireAdmin, (req, res) => {
   const items = readAnnouncements();
   const item = items.find(entry => entry.id === req.body.id);
   if (!item) return res.status(404).send('Announcement not found.');
-  item.enabled = req.body.enabled === 'on';
-  if (item.enabled) for (const entry of items) if (entry.id !== item.id) entry.enabled = false;
+  const shouldEnable = req.body.enabled === 'on';
+  if (shouldEnable) {
+    const conflict = findAnnouncementConflict(items, item);
+    if (conflict) return res.status(409).send('Schedule conflict: "' + cleanText(conflict.title, 100) + '" is already scheduled to display during that time. Change the dates or times before publishing.');
+  }
+  item.enabled = shouldEnable;
   writeAnnouncements(items);
   res.redirect(303, '/admin?saved=1');
 });
