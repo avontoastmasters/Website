@@ -80,25 +80,45 @@ const ADMIN_COOKIE = 'avon_admin_session';
 const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
 const adminAttempts = new Map();
 
-function readAnnouncement() {
+function readAnnouncements() {
   try {
     const value = JSON.parse(fs.readFileSync(announcementFile, 'utf8'));
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object' && value.title) return [{ ...value, id: value.id || crypto.randomUUID() }];
   } catch {}
-  return { enabled: false, type: 'general', title: '', message: '', buttonText: '', buttonLink: '', startDate: '', endDate: '' };
+  return [];
 }
-function writeAnnouncement(value) {
+function writeAnnouncements(items) {
   fs.mkdirSync(path.dirname(announcementFile), { recursive: true, mode: 0o750 });
   const temporaryFile = announcementFile + '.tmp';
-  fs.writeFileSync(temporaryFile, JSON.stringify(value, null, 2) + '\n', { mode: 0o640 });
+  fs.writeFileSync(temporaryFile, JSON.stringify(items, null, 2) + '\n', { mode: 0o640 });
   fs.renameSync(temporaryFile, announcementFile);
 }
 function getPublicAnnouncement() {
-  const item = readAnnouncement();
-  if (item.enabled !== true || !item.title || !item.message) return null;
+  const items = readAnnouncements();
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  if ((item.startDate && today < item.startDate) || (item.endDate && today > item.endDate)) return null;
-  return item;
+  return items.find(item => item.enabled === true && item.title && item.message &&
+    (!item.startDate || today >= item.startDate) && (!item.endDate || today <= item.endDate)) || null;
+}
+function readAnnouncements() {
+  try {
+    const value = JSON.parse(fs.readFileSync(announcementFile, 'utf8'));
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object' && value.title) return [{ ...value, id: value.id || crypto.randomUUID() }];
+  } catch {}
+  return [];
+}
+function writeAnnouncements(items) {
+  fs.mkdirSync(path.dirname(announcementFile), { recursive: true, mode: 0o750 });
+  const temporaryFile = announcementFile + '.tmp';
+  fs.writeFileSync(temporaryFile, JSON.stringify(items, null, 2) + '\n', { mode: 0o640 });
+  fs.renameSync(temporaryFile, announcementFile);
+}
+function getPublicAnnouncement() {
+  const items = readAnnouncements();
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  return items.find(item => item.enabled === true && item.title && item.message &&
+    (!item.startDate || today >= item.startDate) && (!item.endDate || today <= item.endDate)) || null;
 }
 function getCookie(req, name) {
   for (const cookie of (req.headers.cookie || '').split(';')) {
@@ -319,7 +339,7 @@ app.get('/admin', (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
   const session = getAdminSession(req);
   if (!session) return res.render('admin/login', { error: '', username: process.env.ADMIN_USERNAME || 'webmaster' });
-  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcement: readAnnouncement(), saved: req.query.saved === '1' });
+  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements: readAnnouncements(), editing: readAnnouncements().find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1' });
 });
 app.post('/admin/login', async (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
@@ -342,17 +362,39 @@ app.post('/admin/login', async (req, res) => {
 });
 app.post('/admin/save', requireAdmin, (req, res) => {
   if (!validCsrf(req, res)) return;
+  const items = readAnnouncements();
+  const id = cleanText(req.body.id, 80) || crypto.randomUUID();
   const title = cleanText(req.body.title, 100);
   const message = cleanText(req.body.message, 500);
   const buttonText = cleanText(req.body.buttonText, 40);
   const buttonLink = safeAnnouncementLink(req.body.buttonLink);
   const type = ['general', 'important', 'event', 'urgent'].includes(req.body.type) ? req.body.type : 'general';
-  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body.startDate || '') ? req.body.startDate : '';
-  const endDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body.endDate || '') ? req.body.endDate : '';
+  const startDate = /^\\d{4}-\\d{2}-\\d{2}$/.test(req.body.startDate || '') ? req.body.startDate : '';
+  const endDate = /^\\d{4}-\\d{2}-\\d{2}$/.test(req.body.endDate || '') ? req.body.endDate : '';
   if (!title || !message) return res.status(400).send('Please enter both an announcement heading and message.');
   if (buttonLink === null) return res.status(400).send('Use a local page path or a secure https:// button link.');
   if (startDate && endDate && endDate < startDate) return res.status(400).send('The expiry date must be on or after the start date.');
-  writeAnnouncement({ enabled: req.body.enabled === 'on', type, title, message, buttonText: buttonLink ? buttonText : '', buttonLink, startDate, endDate, updatedAt: new Date().toISOString() });
+  const enabled = req.body.enabled === 'on';
+  const item = { id, enabled, type, title, message, buttonText: buttonLink ? buttonText : '', buttonLink, startDate, endDate, updatedAt: new Date().toISOString() };
+  const index = items.findIndex(entry => entry.id === id);
+  if (index >= 0) items[index] = item; else items.unshift(item);
+  if (enabled) for (const entry of items) if (entry.id !== id) entry.enabled = false;
+  writeAnnouncements(items);
+  res.redirect(303, '/admin?saved=1');
+});
+app.post('/admin/toggle', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const items = readAnnouncements();
+  const item = items.find(entry => entry.id === req.body.id);
+  if (!item) return res.status(404).send('Announcement not found.');
+  item.enabled = req.body.enabled === 'on';
+  if (item.enabled) for (const entry of items) if (entry.id !== item.id) entry.enabled = false;
+  writeAnnouncements(items);
+  res.redirect(303, '/admin?saved=1');
+});
+app.post('/admin/delete', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  writeAnnouncements(readAnnouncements().filter(entry => entry.id !== req.body.id));
   res.redirect(303, '/admin?saved=1');
 });
 app.post('/admin/logout', requireAdmin, (req, res) => {
