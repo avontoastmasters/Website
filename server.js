@@ -120,6 +120,19 @@ function announcementsOverlap(first, second) {
 function findAnnouncementConflict(items, candidate) {
   return items.find(item => item.enabled && item.id !== candidate.id && announcementsOverlap(item, candidate));
 }
+function expireAnnouncements(items, now = nzDateTime()) {
+  let changed = false;
+  for (const item of items) {
+    const end = announcementEnd(item);
+    if (item.enabled === true && end && now >= end) {
+      item.enabled = false;
+      item.expiredAt = new Date().toISOString();
+      changed = true;
+    }
+  }
+  if (changed) writeAnnouncements(items);
+  return items;
+}
 function getPublicAnnouncement() {
   const now = nzDateTime();
   return readAnnouncements().find(item => item.enabled === true && item.title && item.message &&
@@ -344,7 +357,7 @@ app.get('/admin', (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
   const session = getAdminSession(req);
   if (!session) return res.render('admin/login', { error: '', username: process.env.ADMIN_USERNAME || 'webmaster' });
-  const announcements = readAnnouncements();
+  const announcements = expireAnnouncements(readAnnouncements());
   res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', nowNZ: nzDateTime(), error: '' });
 });
 app.post('/admin/login', async (req, res) => {
