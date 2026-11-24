@@ -60,8 +60,17 @@
         const now = new Date();
         const today = localParts(now);
         const meetingDay = isMeetingDay(today.year, today.month, today.day);
-        const minutesToday = today.hour * 60 + today.minute;
-        const meetingInProgress = meetingDay && minutesToday >= 19 * 60 && minutesToday < 20 * 60 + 45;
+        // The club meeting runs from 7:30 pm to 8:30 pm Christchurch time.
+        // Use real instants (not rounded minutes) so the countdown resets
+        // immediately at 8:30 pm, including when the page has been left open.
+        const meetingStart = christchurchTime(today.year, today.month, today.day, 19).getTime();
+        const meetingEnd = christchurchTime(today.year, today.month, today.day, 20).getTime() + 30 * 60 * 1000;
+        const meetingInProgress = meetingDay &&
+          now.getTime() >= meetingStart && now.getTime() < meetingEnd;
+
+        // Once the meeting has finished, discard any previous target and
+        // calculate the next 1st, 2nd or 4th Tuesday meeting afresh.
+        if (meetingDay && now.getTime() >= meetingEnd) target = null;
         if (!target || target.getTime() <= now.getTime()) target = findNext(now);
         if (meetingInProgress) {
           if (labelNode) labelNode.textContent = "AVON TOASTMASTERS IS UNDER WAY";
@@ -107,7 +116,7 @@
       const end = new Date(start.getTime() + 90 * 60 * 1000);
       const title = "Avon Toastmasters — Club Meeting";
       const location = "St Albans Community Centre, 1049 Colombo Street, Christchurch, New Zealand";
-      const description = "You're invited to Avon Toastmasters in Christchurch!\n\nJoin us for a friendly, practical evening where you can see how Toastmasters helps people develop confidence, public speaking, communication and leadership skills. A typical meeting includes prepared speeches, impromptu Table Topics, encouraging evaluations and opportunities to practise meeting roles.\n\nMEETING TIME: 7:00 pm start (New Zealand local time). The calendar booking runs for 90 minutes. Please arrive 10–15 minutes early so we can welcome you.\n\nWHEN: First, second and fourth Tuesday of each month.\n\nVENUE: St Albans Community Centre, 1049 Colombo Street, St Albans, Christchurch 8014, New Zealand.\n\nPARKING: 126 Caledonian Road, Christchurch.\n\nGUESTS: Visitors are always welcome. Your visit is free, and there is no obligation to speak or join.\n\nFind out more: https://toastmasters.net.nz/meetings.html\nQuestions? hello@toastmasters.net.nz | 027 608 4338";
+      const description = "You're invited to Avon Toastmasters!\n\nCome along to see how Toastmasters helps people build confidence in public speaking, communication and leadership in a friendly, supportive club. Guests are welcome, visits are free, and there is absolutely no obligation to speak.\n\nTIME: 7:00–8:30 pm (New Zealand local time). Please arrive 10–15 minutes early so we can welcome you.\n\nVENUE: St Albans Community Centre, 1049 Colombo Street, Christchurch, New Zealand.\n\nCAR PARKING: 126 Caledonian Road, Christchurch.\n\nFind out more: https://toastmasters.net.nz/\nQuestions? hello@toastmasters.net.nz | 027 608 4338";
       return { start, end, title, location, description };
     };
     if (googleCalendar) {
