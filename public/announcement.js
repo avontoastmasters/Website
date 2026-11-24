@@ -8,6 +8,7 @@
     try {
       if (sessionStorage.getItem(key) === '1') {
         banner.hidden = true;
+        banner.style.setProperty('display', 'none', 'important');
         return;
       }
     } catch (_) {}
@@ -23,6 +24,7 @@
     if (dismiss) dismiss.addEventListener('click', () => {
       try { sessionStorage.setItem(key, '1'); } catch (_) {}
       banner.hidden = true;
+      banner.style.setProperty('display', 'none', 'important');
       spacer.style.height = '0px';
     });
   };
