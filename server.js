@@ -855,7 +855,7 @@ function makeEventIcs(event) {
   const { start, end } = getEventCalendarTimes(event);
   const uid = (event.id || eventSlug(event)) + '@toastmasters.net.nz';
   const description = String(event.description || '') +
-    '\\n\\nEvent information: ' + eventUrl(event);
+    '\n\nEvent information: ' + eventUrl(event);
 
   const lines = [
     'BEGIN:VCALENDAR',
