@@ -302,7 +302,7 @@ function adminReady() {
   return Boolean(readAdminUsers().some(user => user.enabled && user.role === 'administrator') && process.env.ADMIN_SESSION_SECRET && process.env.ADMIN_SESSION_SECRET.length >= 32);
 }
 function requireAdmin(req, res, next) {
-  const session = getAdminSession(req);
+  const session = req.adminSession || getAdminSession(req);
   if (!session) {
     let returnPath = '/admin';
     if (req.method === 'GET') returnPath = safeAdminReturnPath(req.originalUrl);
@@ -541,7 +541,7 @@ app.use('/admin', (req, res, next) => {
 app.use('/admin', (req, res, next) => {
   const session = getAdminSession(req);
   if (session) {
-    session.expiresAt = Date.now() + ADMIN_SESSION_MS;
+    session.expiresAt = Date.now() + readAdminSettings().sessionMinutes * 60 * 1000;
     setAdminCookie(res, session);
     req.adminSession = session;
   }
@@ -552,14 +552,16 @@ function safeAdminReturnPath(value) {
   return (candidate === '/admin' || candidate.startsWith('/admin?') || candidate.startsWith('/admin/')) && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
 }
 
-app.get('/admin', requireAdmin, (req, res) => {
+app.get('/admin', (req, res) => {
+  if (!adminReady()) return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');
+  const session = req.adminSession || getAdminSession(req);
+  if (!session) return res.render('admin/login', { error: '', next: safeAdminReturnPath(req.query.next), turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
   const announcements = expireAnnouncements(readAnnouncements());
   const events = readEvents();
-  const media = listMediaFiles ? listMediaFiles() : [];
   res.render('admin/dashboard-home', {
-    username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf,
-    announcementCount: announcements.length, eventCount: events.length, mediaCount: media.length,
-    userCount: readAdminUsers().length
+    username: session.username, role: session.role, csrf: session.csrf,
+    announcementCount: announcements.length, eventCount: events.length, mediaCount: listMediaFiles().length,
+    userCount: session.role === 'administrator' ? readAdminUsers().length : null
   });
 });
 app.get('/admin/announcements', requireAdmin, (req, res) => {
