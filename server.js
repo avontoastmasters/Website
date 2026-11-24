@@ -449,6 +449,7 @@ app.post('/api/contact', async (req, res) => {
 app.use('/admin', (req, res, next) => {
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
   res.setHeader('Cache-Control', 'no-store');
+  res.locals.adminSessionMinutes = readAdminSettings().sessionMinutes;
   next();
 });
 app.use('/admin', (req,res,next)=>{const session=getAdminSession(req);if(session){session.expiresAt=Date.now()+readAdminSettings().sessionMinutes*60000;setAdminCookie(res,session);req.adminSession=session}next()});
@@ -477,6 +478,7 @@ app.get('/admin/events', requireAdmin, (req, res) => {
   const events = readEvents().sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b)));
   res.render('admin/events', {
     username: req.adminSession.username,
+    role: req.adminSession.role,
     csrf: req.adminSession.csrf,
     events,
     editing: events.find(item => item.id === req.query.edit) || null,
@@ -562,6 +564,7 @@ function listMediaFiles() {
 app.get('/admin/media', requireAdmin, (req, res) => {
   res.render('admin/media', {
     username: req.adminSession.username,
+    role: req.adminSession.role,
     csrf: req.adminSession.csrf,
     files: listMediaFiles(),
     uploaded: req.query.uploaded === '1',
