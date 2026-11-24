@@ -96,6 +96,7 @@ async function verifyTurnstile(token, remoteIp) {
 const announcementFile = path.join(__dirname, 'data', 'announcement.json');
 const ADMIN_COOKIE = 'avon_admin_session';
 const ADMIN_SESSION_MS = 45 * 60 * 1000;
+const ADMIN_TURNSTILE_SITE_KEY = '0x4AAAAAAGOdEcQMTT3VMD9-';
 const adminAttempts = new Map();
 
 const adminUsersFile=path.join(__dirname,'data','admin-users.json'),adminSettingsFile=path.join(__dirname,'data','admin-settings.json');
@@ -258,7 +259,7 @@ function validCsrf(req,res){const p=req.adminSession||getAdminSession(req);if(!p
 function safeAnnouncementLink(value){const link=cleanText(value,500);if(!link)return '';if(link.startsWith('/')&&!link.startsWith('//')&&!link.includes('\\'))return link;try{const u=new URL(link);return u.protocol==='https:'?u.toString():null}catch{return null}}
 async function verifyAdminTurnstile(token, remoteIp) {
   const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret || !process.env.TURNSTILE_SITE_KEY || !token) return false;
+  if (!secret || !(process.env.TURNSTILE_SITE_KEY || ADMIN_TURNSTILE_SITE_KEY) || !token) return false;
   const body = new URLSearchParams({ secret, response: token });
   if (remoteIp) body.set('remoteip', remoteIp);
   try {
