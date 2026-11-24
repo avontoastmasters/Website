@@ -399,13 +399,11 @@ const mediaUploadDir = path.join(__dirname, 'public', 'uploads', 'media');
 function listMediaFiles() {
   try {
     return fs.readdirSync(mediaUploadDir, { withFileTypes: true })
-      .filter(entry => entry.isFile() && /^[a-f0-9-]{36}\\.webp$/.test(entry.name))
+      .filter(entry => entry.isFile() && /^[a-f0-9-]{36}\.webp$/.test(entry.name))
       .map(entry => {
         const filename = entry.name;
         const fullPath = path.join(mediaUploadDir, filename);
         const stat = fs.statSync(fullPath);
-        let dimensions = '';
-        try { const meta = sharp(fullPath).metadata(); } catch {}
         return { filename, url: '/uploads/media/' + filename, bytes: stat.size, modified: stat.mtime.toISOString() };
       }).sort((a,b) => b.modified.localeCompare(a.modified));
   } catch { return []; }
@@ -451,7 +449,7 @@ app.post('/admin/media/upload', requireAdmin, (req, res, next) => {
 app.post('/admin/media/delete', requireAdmin, (req, res) => {
   if (!validCsrf(req, res)) return;
   const filename = cleanText(req.body.filename, 60);
-  if (!/^[a-f0-9-]{36}\\.webp$/.test(filename)) return res.status(400).send('Invalid image filename.');
+  if (!/^[a-f0-9-]{36}\.webp$/.test(filename)) return res.status(400).send('Invalid image filename.');
   const filePath = path.join(mediaUploadDir, filename);
   try { fs.unlinkSync(filePath); } catch (error) {
     if (error.code === 'ENOENT') return res.status(404).send('Image not found.');
