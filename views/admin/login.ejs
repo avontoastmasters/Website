@@ -23,7 +23,7 @@
       <form method="post" action="/admin/login" class="admin-form">
         <input type="hidden" name="next" value="<%= next || '/admin' %>">
         <label for="username">Username</label>
-        <input id="username" name="username" type="text" autocomplete="username" value="" required maxlength="80">
+        <input id="username" name="username" type="text" autocomplete="off" value="" required maxlength="80">
         <label for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required>
         <div class="cf-turnstile" data-sitekey="<%= typeof turnstileSiteKey !== 'undefined' ? turnstileSiteKey : '' %>" data-action="admin_login"></div>
