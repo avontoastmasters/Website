@@ -2,7 +2,8 @@
   const configuredMinutes = Number(document.querySelector('meta[name="admin-session-minutes"]')?.content) || 45;
   const IDLE_MS = configuredMinutes * 60 * 1000;
   const WARNING_MS = 2 * 60 * 1000;
-  const formKey = form => 'avon-admin-draft:' + location.pathname + ':' + (form.id || form.getAttribute('action') || 'form');
+  const userKey = document.querySelector('meta[name="admin-user-key"]')?.content || 'unknown';
+  const formKey = form => 'avon-admin-draft:' + userKey + ':' + location.pathname + ':' + (form.id || form.getAttribute('action') || 'form');
   const eligible = form => form.matches('.admin-form,[data-save-draft]') && !form.matches('[data-no-draft]');
   const persist = form => {
     const values = {};
@@ -10,7 +11,7 @@
       if (!field.name || ['password','file','hidden','submit','button'].includes(field.type) || field.name === 'csrf') continue;
       values[field.name] = field.type === 'checkbox' || field.type === 'radio' ? field.checked : field.value;
     }
-    try { localStorage.setItem(formKey(form), JSON.stringify(values)); } catch {}
+    try { sessionStorage.setItem(formKey(form), JSON.stringify(values)); } catch {}
   };
   document.querySelectorAll('form').forEach(form => {
     if (!eligible(form)) return;
