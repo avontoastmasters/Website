@@ -95,6 +95,33 @@ function safeAnnouncementImage(value) {
   return /^\/uploads\/(?:announcements|media)\/[a-f0-9-]{36}\.webp$/.test(image) ? image : '';
 }
 
+const eventFile = path.join(__dirname, 'data', 'events.json');
+
+function readEvents() {
+  try {
+    const value = JSON.parse(fs.readFileSync(eventFile, 'utf8'));
+    return Array.isArray(value) ? value : [];
+  } catch { return []; }
+}
+function writeEvents(items) {
+  fs.mkdirSync(path.dirname(eventFile), { recursive: true, mode: 0o750 });
+  const temporaryFile = eventFile + '.tmp';
+  fs.writeFileSync(temporaryFile, JSON.stringify(items, null, 2) + '\n', { mode: 0o640 });
+  fs.renameSync(temporaryFile, eventFile);
+}
+function eventDateTime(item) {
+  return (item.date || '9999-12-31') + 'T' + (item.startTime || '00:00');
+}
+function getPublicEvents() {
+  const now = nzDateTime();
+  const items = readEvents().filter(item => item.enabled === true && item.title && item.description && item.date);
+  items.sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b)));
+  return {
+    upcoming: items.filter(item => eventDateTime(item) >= now),
+    past: items.filter(item => eventDateTime(item) < now).sort((a, b) => eventDateTime(b).localeCompare(eventDateTime(a))).slice(0, 6)
+  };
+}
+
 function readAnnouncements() {
   try {
     const value = JSON.parse(fs.readFileSync(announcementFile, 'utf8'));
@@ -375,6 +402,63 @@ app.get('/admin', (req, res) => {
   const announcements = expireAnnouncements(readAnnouncements());
   res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', uploadedImage: safeAnnouncementImage(req.query.image), nowNZ: nzDateTime(), error: '' });
 });
+app.get('/admin/events', requireAdmin, (req, res) => {
+  const events = readEvents().sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b)));
+  res.render('admin/events', {
+    username: req.adminSession.username,
+    csrf: req.adminSession.csrf,
+    events,
+    editing: events.find(item => item.id === req.query.edit) || null,
+    saved: req.query.saved === '1',
+    error: ''
+  });
+});
+
+app.post('/admin/events/save', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const items = readEvents();
+  const id = cleanText(req.body.id, 80) || crypto.randomUUID();
+  const title = cleanText(req.body.title, 120);
+  const description = cleanText(req.body.description, 2000);
+  const category = ['competition', 'open-house', 'workshop', 'social', 'special', 'other'].includes(req.body.category) ? req.body.category : 'other';
+  const date = cleanText(req.body.date, 10);
+  const startTime = cleanText(req.body.startTime, 5);
+  const endTime = cleanText(req.body.endTime, 5);
+  const location = cleanText(req.body.location, 180);
+  const bookingLink = safeAnnouncementLink(req.body.bookingLink);
+  const imageUrl = safeAnnouncementImage(req.body.imageUrl);
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  const validDate = value => datePattern.test(value) && !Number.isNaN(Date.parse(value + 'T00:00:00Z')) && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
+  if (!title || title.length < 3 || !description || description.length < 10) return res.status(400).send('Please enter an event title and a description of at least 10 characters.');
+  if (!validDate(date) || !timePattern.test(startTime) || (endTime && !timePattern.test(endTime))) return res.status(400).send('Please enter a valid New Zealand event date and time.');
+  if (endTime && endTime <= startTime) return res.status(400).send('The event end time must be later than its start time.');
+  if (!location) return res.status(400).send('Please enter an event location.');
+  if (bookingLink === null) return res.status(400).send('Use a local page path or a secure https:// booking link.');
+  const item = { id, enabled: req.body.enabled === 'on', title, description, category, date, startTime, endTime, location, bookingLink, imageUrl, updatedAt: new Date().toISOString() };
+  const index = items.findIndex(entry => entry.id === id);
+  if (index >= 0) items[index] = item; else items.unshift(item);
+  writeEvents(items);
+  res.redirect(303, '/admin/events?saved=1');
+});
+
+app.post('/admin/events/toggle', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const items = readEvents();
+  const item = items.find(entry => entry.id === req.body.id);
+  if (!item) return res.status(404).send('Event not found.');
+  item.enabled = req.body.enabled === 'on';
+  item.updatedAt = new Date().toISOString();
+  writeEvents(items);
+  res.redirect(303, '/admin/events?saved=1');
+});
+
+app.post('/admin/events/delete', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  writeEvents(readEvents().filter(item => item.id !== req.body.id));
+  res.redirect(303, '/admin/events?saved=1');
+});
+
 app.post('/admin/login', async (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
@@ -588,6 +672,20 @@ app.get('/index.html', (req, res) => res.redirect(301, '/'));
 
 // Short, memorable link for visitors to leave an Avon Toastmasters Google review.
 app.get('/review', (req, res) => res.redirect(302, 'https://search.google.com/local/writereview?placeid=ChIJm5X6pmiLMW0R_nscPejQJ5Q'));
+
+app.get('/events.html', (req, res, next) => {
+  const events = getPublicEvents();
+  res.render('layout', {
+    pageName: 'events',
+    currentPage: 'events',
+    announcement: getPublicAnnouncement(),
+    events: events.upcoming,
+    pastEvents: events.past
+  }, (err, html) => {
+    if (err) return next(err);
+    res.type('html').send(html);
+  });
+});
 
 const pages = {
   '/': 'index',
