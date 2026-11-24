@@ -1,0 +1,30 @@
+<%
+const eventTitle = event.title + ' | Avon Toastmasters Christchurch';
+const eventDescription = String(event.description || '').replace(/\s+/g, ' ').trim().slice(0, 155);
+const eventImage = event.imageUrl
+  ? (event.imageUrl.startsWith('http') ? event.imageUrl : 'https://toastmasters.net.nz' + event.imageUrl)
+  : 'https://raw.githubusercontent.com/avontoastmasters/Website/refs/heads/main/og-image.png';
+%>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#004165">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="description" content="<%= eventDescription %>">
+<title><%= eventTitle %></title>
+<link rel="canonical" href="<%= eventUrl %>">
+<meta property="og:type" content="event">
+<meta property="og:site_name" content="Avon Toastmasters">
+<meta property="og:title" content="<%= eventTitle %>">
+<meta property="og:description" content="<%= eventDescription %>">
+<meta property="og:url" content="<%= eventUrl %>">
+<meta property="og:image" content="<%= eventImage %>">
+<meta property="og:image:alt" content="<%= event.title %>">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="<%= eventTitle %>">
+<meta name="twitter:description" content="<%= eventDescription %>">
+<meta name="twitter:image" content="<%= eventImage %>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css?v=20261124-event-pages">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">

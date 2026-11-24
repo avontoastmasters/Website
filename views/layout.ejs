@@ -5,6 +5,38 @@
 <meta property="og:locale" content="en_NZ">
 <script type="application/ld+json"><%- JSON.stringify({"@context":"https://schema.org","@type":"Organization","@id":"https://toastmasters.net.nz/#club","name":"Avon Toastmasters Christchurch","alternateName":"Avon Toastmasters Club","url":"https://toastmasters.net.nz/","image":"https://raw.githubusercontent.com/avontoastmasters/Website/refs/heads/main/og-image.png","logo":"https://raw.githubusercontent.com/avontoastmasters/Website/refs/heads/main/og-image.png","description":"Avon Toastmasters is a friendly public speaking and leadership club in St Albans, Christchurch. Build confidence through prepared speeches, impromptu speaking, evaluations and supportive member-led meetings. Guests can visit for free with no obligation to join.","email":"hello@toastmasters.net.nz","telephone":"+64 27 478 5322","foundingDate":"1974-09-01","address":{"@type":"PostalAddress","streetAddress":"1049 Colombo Street","addressLocality":"Christchurch","addressRegion":"Canterbury","postalCode":"8014","addressCountry":"NZ"},"areaServed":[{"@type":"City","name":"Christchurch"},{"@type":"Place","name":"St Albans"},{"@type":"AdministrativeArea","name":"Canterbury"}],"knowsAbout":["Toastmasters","public speaking","communication skills","leadership development","presentation skills","impromptu speaking","speech writing","constructive feedback"],"sameAs":["https://www.facebook.com/avontoastmasters","https://www.instagram.com/avontoastmasters/","https://www.toastmasters.org/Find-a-Club/3514-avon-club"],"parentOrganization":{"@type":"Organization","name":"Toastmasters International","url":"https://www.toastmasters.org/"}}) %></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"Avon Toastmasters Christchurch","url":"https://toastmasters.net.nz/","image":"https://raw.githubusercontent.com/avontoastmasters/Website/refs/heads/main/og-image.png","inLanguage":"en-NZ","publisher":{"@id":"https://toastmasters.net.nz/#club"}}</script>
+<% if (pageName === 'event') {
+  const eventStart = event.date + 'T' + (event.startTime || '00:00') + ':00+13:00';
+  const eventEnd = event.endTime ? event.date + 'T' + event.endTime + ':00+13:00' : undefined;
+  const schemaImage = event.imageUrl ? (event.imageUrl.startsWith('http') ? event.imageUrl : 'https://toastmasters.net.nz' + event.imageUrl) : 'https://raw.githubusercontent.com/avontoastmasters/Website/refs/heads/main/og-image.png';
+%>
+<script type="application/ld+json"><%- JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "Event",
+  "name": event.title,
+  "description": event.description,
+  "startDate": eventStart,
+  ...(eventEnd ? { "endDate": eventEnd } : {}),
+  "eventStatus": "https://schema.org/EventScheduled",
+  "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+  "url": eventUrl,
+  "image": [schemaImage],
+  "location": {
+    "@type": "Place",
+    "name": event.location,
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "1049 Colombo Street",
+      "addressLocality": "Christchurch",
+      "addressRegion": "Canterbury",
+      "postalCode": "8014",
+      "addressCountry": "NZ"
+    }
+  },
+  "organizer": { "@id": "https://toastmasters.net.nz/#club" }
+}) %></script>
+<% } %>
+<% if (pageName !== 'event') { %>
 <meta property="og:image" content="https://raw.githubusercontent.com/avontoastmasters/Website/refs/heads/main/og-image.png">
 <meta property="og:image:secure_url" content="https://raw.githubusercontent.com/avontoastmasters/Website/refs/heads/main/og-image.png">
 <meta property="og:image:type" content="image/png">
@@ -13,6 +45,7 @@
 <meta property="og:image:alt" content="Avon Toastmasters — Christchurch public speaking and leadership club">
 <meta name="twitter:image" content="https://raw.githubusercontent.com/avontoastmasters/Website/refs/heads/main/og-image.png">
 <meta name="twitter:image:alt" content="Avon Toastmasters — Christchurch public speaking and leadership club">
+<% } %>
 <script async src="https://www.googletagmanager.com/gtm.js?id=GTM-KKMNLSBQ"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -21,7 +54,7 @@
 </script>
 
 <% if (pageName !== 'index') { %>
-<script type="application/ld+json"><%- JSON.stringify({ "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://toastmasters.net.nz/" }, { "@type": "ListItem", "position": 2, "name": ({about:"About Avon",meetings:"Meetings",events:"Events",experience:"What to Expect",benefits:"Benefits",visit:"Visit Avon",join:"Join Avon",faq:"FAQs","public-speaking-christchurch":"Public Speaking Christchurch"}[pageName] || "Avon Toastmasters"), "item": "https://toastmasters.net.nz/" + pageName + ".html" }] }) %></script>
+<script type="application/ld+json"><%- JSON.stringify({ "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://toastmasters.net.nz/" }, { "@type": "ListItem", "position": 2, "name": pageName === 'event' ? 'Events' : ({about:"About Avon",meetings:"Meetings",events:"Events",experience:"What to Expect",benefits:"Benefits",visit:"Visit Avon",join:"Join Avon",faq:"FAQs","public-speaking-christchurch":"Public Speaking Christchurch"}[pageName] || "Avon Toastmasters"), "item": pageName === 'event' ? 'https://toastmasters.net.nz/events.html' : "https://toastmasters.net.nz/" + pageName + ".html" }, ...(pageName === 'event' ? [{ "@type": "ListItem", "position": 3, "name": event.title, "item": eventUrl }] : [])] }) %></script>
 <% } %>
 <% if (pageName === 'visit') { %>
 <link rel="stylesheet" href="/contact-form.css">

@@ -1,10 +1,60 @@
 <main id="main-content" class="events-page">
-<section class="page-hero"><div class="wrap"><p class="eyebrow">WHAT'S HAPPENING AT AVON</p><h1>Club events<br><em>and special occasions.</em></h1><p class="lead">From speech competitions and open evenings to workshops and social get-togethers, there's always something happening at Avon Toastmasters.</p></div></section>
-<section class="section"><div class="wrap"><div class="section-head"><div><p class="eyebrow blue">SAVE THE DATE</p><h2>Upcoming <em>events.</em></h2></div><p>Keep up with what's coming up at the club. Guests and friends are welcome at many of our events.</p></div>
-<% if (events && events.length) { %><div class="events-grid"><% events.forEach(event => { const categoryLabels = {competition:'Speech competition','open-house':'Open house',workshop:'Workshop',social:'Club social',special:'Special event',other:'Club event'}; %><article class="event-card" id="event-<%= event.id %>">
-<% if (event.imageUrl) { %><img class="event-card__image" src="<%= event.imageUrl %>" alt="" loading="lazy" decoding="async"><% } else { %><div class="event-card__image event-card__image--placeholder" aria-hidden="true"><span>AVON<br>TOASTMASTERS</span></div><% } %>
-<div class="event-card__body"><span class="event-card__category"><%= categoryLabels[event.category] || 'Club event' %></span><p class="event-card__date"><%= new Date(event.date + 'T00:00:00Z').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Pacific/Auckland'}) %><% if (event.startTime) { %> · <%= event.startTime %><% if (event.endTime) { %>–<%= event.endTime %><% } %><% } %></p><h3><%= event.title %></h3><p><%= event.description %></p><p class="event-card__location"><strong>Where:</strong> <%= event.location %></p><% if (event.bookingLink) { %><a class="btn btn-blue event-card__link" href="<%= event.bookingLink %>" <%= event.bookingLink.startsWith('https://') ? 'target="_blank" rel="noopener noreferrer"' : '' %>>Find out more <span>↗</span></a><% } %></div></article><% }) %></div><% } else { %><div class="events-empty"><span class="events-empty__icon" aria-hidden="true">✦</span><h3>Nothing on the calendar just yet.</h3><p>Check back soon for upcoming Avon Toastmasters events. Our regular club meetings are still happening as usual.</p><a class="btn btn-blue" href="/meetings.html">View meeting details</a></div><% } %>
-</div></section>
+<section class="page-hero">
+  <div class="wrap">
+    <p class="eyebrow">WHAT'S HAPPENING AT AVON</p>
+    <h1>Club events<br><em>and special occasions.</em></h1>
+    <p class="lead">From speech competitions and open evenings to workshops and social get-togethers, there's always something happening at Avon Toastmasters.</p>
+  </div>
+</section>
 
-<section class="section"><div class="wrap events-visit-cta"><div><p class="eyebrow">YOU'RE INVITED</p><h2>Come along and<br><em>be part of it.</em></h2><p>Whether you're curious about public speaking or simply want to meet the club, you're welcome to visit us for free.</p></div><a class="btn btn-gold" href="/visit.html">Plan your visit <span>↗</span></a></div></section>
+<section class="section">
+<div class="wrap">
+  <div class="section-head">
+    <div><p class="eyebrow blue">SAVE THE DATE</p><h2>Upcoming <em>events.</em></h2></div>
+    <p>Explore what's coming up at the club. Guests and friends are welcome at many of our events.</p>
+  </div>
+
+  <% if (events && events.length) { %>
+  <div class="events-grid">
+    <% events.forEach(event => {
+      const categoryLabels = {competition:'Speech competition','open-house':'Open house',workshop:'Workshop',social:'Club social',special:'Special event',other:'Club event'};
+      const slug = event.slug || event.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const excerpt = String(event.description || '').replace(/\s+/g, ' ').trim();
+    %>
+    <article class="event-card">
+      <a class="event-card__main-link" href="/events/<%= encodeURIComponent(slug) %>" aria-label="Read more about <%= event.title %>">
+        <% if (event.imageUrl) { %>
+          <img class="event-card__image" src="<%= event.imageUrl %>" alt="<%= event.title %>" loading="lazy" decoding="async">
+        <% } else { %>
+          <div class="event-card__image event-card__image--placeholder" aria-hidden="true"><span>AVON<br>TOASTMASTERS</span></div>
+        <% } %>
+        <div class="event-card__body">
+          <span class="event-card__category"><%= categoryLabels[event.category] || 'Club event' %></span>
+          <p class="event-card__date"><%= new Date(event.date + 'T00:00:00Z').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Pacific/Auckland'}) %><% if (event.startTime) { %> · <%= event.startTime %><% if (event.endTime) { %>–<%= event.endTime %><% } %><% } %></p>
+          <h3><%= event.title %></h3>
+          <p class="event-card__excerpt"><%= excerpt.length > 155 ? excerpt.slice(0, 155).replace(/\s+\S*$/, '') + '…' : excerpt %></p>
+          <p class="event-card__location"><strong>Where:</strong> <%= event.location %></p>
+          <span class="event-card__read-more">Event details <span aria-hidden="true">→</span></span>
+        </div>
+      </a>
+    </article>
+    <% }) %>
+  </div>
+  <% } else { %>
+  <div class="events-empty">
+    <span class="events-empty__icon" aria-hidden="true">✦</span>
+    <h3>Nothing on the calendar just yet.</h3>
+    <p>Check back soon for upcoming Avon Toastmasters events. Our regular club meetings are still happening as usual.</p>
+    <a class="btn btn-blue" href="/meetings.html">View meeting details</a>
+  </div>
+  <% } %>
+</div>
+</section>
+
+<section class="section">
+<div class="wrap events-visit-cta">
+  <div><p class="eyebrow">YOU'RE INVITED</p><h2>Come along and<br><em>be part of it.</em></h2><p>Whether you're curious about public speaking or simply want to meet the club, you're welcome to visit us for free.</p></div>
+  <a class="btn btn-gold" href="/visit.html">Plan your visit <span>↗</span></a>
+</div>
+</section>
 </main>

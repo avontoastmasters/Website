@@ -1,0 +1,61 @@
+<main id="main-content" class="event-detail-page">
+  <section class="event-detail-hero">
+    <div class="event-detail-hero__image">
+      <% if (event.imageUrl) { %>
+        <img src="<%= event.imageUrl %>" alt="<%= event.title %>">
+      <% } else { %>
+        <div class="event-detail-hero__placeholder"><span>AVON<br>TOASTMASTERS</span></div>
+      <% } %>
+    </div>
+    <div class="event-detail-hero__overlay"></div>
+    <div class="wrap event-detail-hero__content">
+      <a class="event-detail-back" href="/events.html">← All events</a>
+      <span class="event-card__category"><%= categoryLabel %></span>
+      <h1><%= event.title %></h1>
+      <p><%= new Date(event.date + 'T00:00:00Z').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Pacific/Auckland'}) %><% if (event.startTime) { %> · <%= event.startTime %><% if (event.endTime) { %>–<%= event.endTime %><% } %><% } %></p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap event-detail-layout">
+      <article class="event-detail-content">
+        <p class="eyebrow blue">ABOUT THIS EVENT</p>
+        <h2>You're <em>invited.</em></h2>
+        <% descriptionParagraphs.forEach(paragraph => { %>
+          <p class="event-description-paragraph"><%= paragraph %></p>
+        <% }) %>
+        <div class="event-detail-actions">
+          <% if (event.bookingLink) { %>
+            <a class="btn btn-blue" href="<%= event.bookingLink %>" <%= event.bookingLink.startsWith('https://') ? 'target="_blank" rel="noopener noreferrer"' : '' %>>More information / booking ↗</a>
+          <% } %>
+          <button class="btn btn-outline" type="button" id="share-event">Share this event ↗</button>
+        </div>
+        <div class="event-calendar-actions">
+          <p class="event-calendar-label">SAVE THE DATE</p>
+          <a class="btn btn-blue" href="<%= googleCalendarUrl %>" target="_blank" rel="noopener noreferrer">Add to Google Calendar ↗</a>
+          <a class="btn btn-outline" href="<%= calendarDownloadUrl %>">Download calendar invite (.ics) ↓</a>
+        </div>
+        <p class="event-share-status" id="event-share-status" aria-live="polite"></p>
+      </article>
+
+      <aside class="event-detail-sidebar">
+        <div class="event-info-card">
+          <p class="eyebrow blue">EVENT DETAILS</p>
+          <h2>When & where</h2>
+          <div class="event-info-item"><span>DATE</span><strong><%= new Date(event.date + 'T00:00:00Z').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Pacific/Auckland'}) %></strong></div>
+          <div class="event-info-item"><span>TIME</span><strong><%= event.startTime || 'Time to be confirmed' %><%= event.endTime ? ' – ' + event.endTime : '' %></strong></div>
+          <div class="event-info-item"><span>LOCATION</span><strong><%= event.location %></strong></div>
+          <a class="event-directions" href="https://www.google.com/maps/search/?api=1&query=<%= encodeURIComponent(event.location) %>" target="_blank" rel="noopener noreferrer">Get directions ↗</a>
+        </div>
+        <div class="event-info-note"><strong>New to Toastmasters?</strong><p>Visitors are welcome at Avon Toastmasters. Come along, see how a meeting works and meet our friendly members.</p><a href="/visit.html">Plan your visit →</a></div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section tint">
+    <div class="wrap event-detail-bottom">
+      <div><p class="eyebrow blue">MORE FROM AVON</p><h2>Discover more <em>at the club.</em></h2><p>Explore our upcoming events or find out what happens at a regular Toastmasters meeting.</p></div>
+      <div><a class="btn btn-blue" href="/events.html">All events</a> <a class="btn btn-outline" href="/meetings.html">Meeting details</a></div>
+    </div>
+  </section>
+</main>

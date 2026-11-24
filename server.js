@@ -53,6 +53,15 @@ function cleanText(value, maxLength) {
   return value.replace(/[\x00-\x1F\x7F]/g, ' ').trim().slice(0, maxLength);
 }
 
+function cleanMultilineText(value, maxLength) {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
 async function verifyTurnstile(token, remoteIp) {
   const secret = process.env.TURNSTILE_SECRET_KEY;
   if (!secret || !token) return false;
@@ -112,16 +121,53 @@ function writeEvents(items) {
 function eventDateTime(item) {
   return (item.date || '9999-12-31') + 'T' + (item.startTime || '00:00');
 }
-function eventEndDateTime(item) {
-  return (item.date || '9999-12-31') + 'T' + (item.endTime || item.startTime || '23:59');
+function slugifyEvent(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+    .replace(/-+$/g, '');
 }
+
+function eventSlug(item) {
+  return item.slug || slugifyEvent(item.title) || item.id;
+}
+
+function eventUrl(item) {
+  return 'https://toastmasters.net.nz/events/' + encodeURIComponent(eventSlug(item));
+}
+
+function escapeXml(value) {
+  return String(value || '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&apos;'
+  })[character]);
+}
+
+function eventEndDateTime(item) {
+  return (item.date || '9999-12-31') + 'T' + (item.endTime || '23:59');
+}
+
 function eventHasFinished(item, now = nzDateTime()) {
   return eventEndDateTime(item) <= now;
 }
+
 function getPublicEvents() {
   const now = nzDateTime();
   return readEvents()
-    .filter(item => item.enabled === true && item.title && item.description && item.date && !eventHasFinished(item, now))
+    .filter(item =>
+      item.enabled === true &&
+      item.title &&
+      item.description &&
+      item.date &&
+      !eventHasFinished(item, now)
+    )
     .sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b)));
 }
 
@@ -265,18 +311,35 @@ app.get('/robots.txt', (req, res) => {
 });
 
 app.get('/sitemap.xml', (req, res) => {
-  const sitemapPath = path.join(__dirname, 'sitemap.xml');
-  let xml = fs.readFileSync(sitemapPath, 'utf8');
-  const eventUrls = getPublicEvents().map(item => [
-    '  <url>',
-    '    <loc>' + escapeXml(eventUrl(item)) + '</loc>',
-    '    <lastmod>' + escapeXml((item.updatedAt || new Date().toISOString()).slice(0, 10)) + '</lastmod>',
-    '    <changefreq>weekly</changefreq>',
-    '    <priority>0.6</priority>',
-    '  </url>'
-  ].join('\\n')).join('\\n');
-  if (eventUrls) xml = xml.replace('</urlset>', eventUrls + '\\n</urlset>');
-  res.type('application/xml').send(xml);
+  try {
+    const sitemapFile = path.join(__dirname, 'sitemap.xml');
+    let xml = fs.readFileSync(sitemapFile, 'utf8');
+
+    const eventUrls = getPublicEvents().map(item => {
+      const lastmod = item.updatedAt
+        ? String(item.updatedAt).slice(0, 10)
+        : item.date;
+
+      return [
+        '  <url>',
+        `    <loc>${escapeXml(eventUrl(item))}</loc>`,
+        `    <lastmod>${escapeXml(lastmod)}</lastmod>`,
+        '    <changefreq>weekly</changefreq>',
+        '    <priority>0.6</priority>',
+        '  </url>'
+      ].join('\n');
+    });
+
+    if (eventUrls.length && xml.includes('</urlset>')) {
+      xml = xml.replace('</urlset>', eventUrls.join('\n') + '\n</urlset>');
+    }
+
+    res.set('Cache-Control', 'no-store');
+    res.type('application/xml').send(xml);
+  } catch (error) {
+    console.error('Sitemap generation failed:', error);
+    res.status(500).type('text/plain').send('Unable to generate sitemap.');
+  }
 });
 
 app.get(['/health', '/healthz'], (req, res) => {
@@ -433,7 +496,9 @@ app.post('/admin/events/save', requireAdmin, (req, res) => {
   const items = readEvents();
   const id = cleanText(req.body.id, 80) || crypto.randomUUID();
   const title = cleanText(req.body.title, 120);
-  const description = cleanText(req.body.description, 2000);
+  const requestedSlug = cleanText(req.body.slug, 80);
+  const slug = slugifyEvent(requestedSlug || title);
+  const description = cleanMultilineText(req.body.description, 2000);
   const category = ['competition', 'open-house', 'workshop', 'social', 'special', 'other'].includes(req.body.category) ? req.body.category : 'other';
   const date = cleanText(req.body.date, 10);
   const startTime = cleanText(req.body.startTime, 5);
@@ -445,11 +510,13 @@ app.post('/admin/events/save', requireAdmin, (req, res) => {
   const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
   const validDate = value => datePattern.test(value) && !Number.isNaN(Date.parse(value + 'T00:00:00Z')) && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
   if (!title || title.length < 3 || !description || description.length < 10) return res.status(400).send('Please enter an event title and a description of at least 10 characters.');
+  if (!slug || slug.length < 3 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return res.status(400).send('Please enter a valid event URL using letters, numbers and hyphens.');
+  if (items.some(entry => entry.id !== id && eventSlug(entry) === slug)) return res.status(400).send('That event URL is already in use. Please choose a different custom URL.');
   if (!validDate(date) || !timePattern.test(startTime) || (endTime && !timePattern.test(endTime))) return res.status(400).send('Please enter a valid New Zealand event date and time.');
   if (endTime && endTime <= startTime) return res.status(400).send('The event end time must be later than its start time.');
   if (!location) return res.status(400).send('Please enter an event location.');
   if (bookingLink === null) return res.status(400).send('Use a local page path or a secure https:// booking link.');
-  const item = { id, enabled: req.body.enabled === 'on', title, description, category, date, startTime, endTime, location, bookingLink, imageUrl, updatedAt: new Date().toISOString() };
+  const item = { id, slug, enabled: req.body.enabled === 'on', title, description, category, date, startTime, endTime, location, bookingLink, imageUrl, updatedAt: new Date().toISOString() };
   const index = items.findIndex(entry => entry.id === id);
   if (index >= 0) items[index] = item; else items.unshift(item);
   writeEvents(items);
@@ -694,6 +761,187 @@ app.get('/events.html', (req, res, next) => {
     currentPage: 'events',
     announcement: getPublicAnnouncement(),
     events
+  }, (err, html) => {
+    if (err) return next(err);
+    res.type('html').send(html);
+  });
+});
+
+
+function eventLocalDateTimeToUtc(dateValue, timeValue) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateValue || '')) ||
+      !/^\d{2}:\d{2}$/.test(String(timeValue || ''))) {
+    throw new Error('Invalid event date or time');
+  }
+
+  const [year, month, day] = dateValue.split('-').map(Number);
+  const [hour, minute] = timeValue.split(':').map(Number);
+
+  if (month < 1 || month > 12 || day < 1 || day > 31 ||
+      hour > 23 || minute > 59) {
+    throw new Error('Invalid event date or time');
+  }
+
+  const target = Date.UTC(year, month - 1, day, hour, minute);
+  const formatter = new Intl.DateTimeFormat('en-NZ', {
+    timeZone: 'Pacific/Auckland',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  });
+
+  let result = target;
+
+  for (let i = 0; i < 3; i++) {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date(result))
+        .filter(part => part.type !== 'literal')
+        .map(part => [part.type, Number(part.value)])
+    );
+
+    const representedAsUtc = Date.UTC(
+      parts.year, parts.month - 1, parts.day,
+      parts.hour, parts.minute, parts.second
+    );
+
+    result = target - (representedAsUtc - result);
+  }
+
+  return new Date(result);
+}
+
+function getEventCalendarTimes(event) {
+  const start = eventLocalDateTimeToUtc(event.date, event.startTime || '19:00');
+  const end = event.endTime
+    ? eventLocalDateTimeToUtc(event.date, event.endTime)
+    : new Date(start.getTime() + 90 * 60 * 1000);
+
+  if (end <= start) throw new Error('Event end time must be after its start time');
+
+  return { start, end };
+}
+
+function calendarUtcDate(date) {
+  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+}
+
+function escapeCalendarText(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\r?\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+}
+
+function makeGoogleCalendarUrl(event) {
+  const { start, end } = getEventCalendarTimes(event);
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: event.title,
+    dates: calendarUtcDate(start) + '/' + calendarUtcDate(end),
+    details: String(event.description || '') + '\n\nEvent information: ' + eventUrl(event),
+    location: event.location || 'St Albans Community Centre, Christchurch',
+    ctz: 'Pacific/Auckland'
+  });
+
+  return 'https://calendar.google.com/calendar/render?' + params.toString();
+}
+
+function makeEventIcs(event) {
+  const { start, end } = getEventCalendarTimes(event);
+  const uid = (event.id || eventSlug(event)) + '@toastmasters.net.nz';
+  const description = String(event.description || '') +
+    '\\n\\nEvent information: ' + eventUrl(event);
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Avon Toastmasters//Event Calendar//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    'UID:' + escapeCalendarText(uid),
+    'DTSTAMP:' + calendarUtcDate(new Date()),
+    'DTSTART:' + calendarUtcDate(start),
+    'DTEND:' + calendarUtcDate(end),
+    'SUMMARY:' + escapeCalendarText(event.title),
+    'DESCRIPTION:' + escapeCalendarText(description),
+    'LOCATION:' + escapeCalendarText(event.location || ''),
+    'URL:' + eventUrl(event),
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ];
+
+  return lines.join('\r\n') + '\r\n';
+}
+
+app.get('/events/:slug/calendar.ics', (req, res) => {
+  const requestedSlug = String(req.params.slug || '');
+  const event = getPublicEvents().find(item =>
+    eventSlug(item) === requestedSlug
+  );
+
+  if (!event) {
+    return res.status(404).send('This event could not be found.');
+  }
+
+  try {
+    const filename = eventSlug(event) + '.ics';
+    const calendar = makeEventIcs(event);
+
+    res.set({
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="' + filename + '"',
+      'Cache-Control': 'no-store'
+    });
+
+    return res.send(calendar);
+  } catch (error) {
+    console.error('Unable to generate event calendar file:', error);
+    return res.status(400).send('This event does not have valid calendar date and time details.');
+  }
+});
+
+app.get('/events/:slug', (req, res, next) => {
+  const requestedSlug = String(req.params.slug || '');
+
+  const event = getPublicEvents().find(item =>
+    eventSlug(item) === requestedSlug
+  );
+
+  if (!event) {
+    return res.status(404).send('This event could not be found. It may have been unpublished or removed.');
+  }
+
+  const categoryLabels = {
+    competition: 'Speech competition',
+    'open-house': 'Open house',
+    workshop: 'Workshop',
+    social: 'Club social',
+    special: 'Special event',
+    other: 'Club event'
+  };
+
+  const eventUrlValue = eventUrl(event);
+  const descriptionParagraphs = String(event.description || '')
+    .split(/\n{2,}/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean);
+
+  res.render('layout', {
+    pageName: 'event',
+    currentPage: 'events',
+    announcement: getPublicAnnouncement(),
+    event,
+    eventUrl: eventUrlValue,
+    googleCalendarUrl: makeGoogleCalendarUrl(event),
+    calendarDownloadUrl: '/events/' + encodeURIComponent(eventSlug(event)) + '/calendar.ics',
+    categoryLabel: categoryLabels[event.category] || 'Club event',
+    descriptionParagraphs
   }, (err, html) => {
     if (err) return next(err);
     res.type('html').send(html);
