@@ -693,3 +693,42 @@ button,input,select,textarea{font-family:"Source Sans 3","Arial",sans-serif}
 @media(max-width:1050px){.events-grid{grid-template-columns:1fr}.event-card{grid-template-columns:minmax(180px,.65fr) minmax(0,1.35fr)}}
 @media(max-width:650px){.event-card{grid-template-columns:1fr}.event-card__image{height:190px;min-height:0}.event-card__body{padding:22px 20px}.past-events-list{grid-template-columns:1fr}.past-events-list article{gap:12px}.events-visit-cta{align-items:flex-start;flex-direction:column}.events-visit-cta .btn{width:100%;justify-content:center}}
 @media(prefers-reduced-motion:reduce){.event-card{transition:none!important}}
+
+
+/* Header navigation repair: keep desktop links on one line and give the brand/nav room. */
+@media(min-width:1081px){
+ .head-inner{
+  width:min(1600px,calc(100% - 48px));
+  gap:clamp(14px,1.5vw,28px);
+ }
+ .logo-link{
+  flex:0 0 auto;
+  min-width:0;
+  max-width:390px;
+  gap:12px;
+ }
+ .head-inner nav{
+  flex:1 1 auto;
+  min-width:0;
+  justify-content:space-between;
+  gap:clamp(10px,1.25vw,24px);
+ }
+ .head-inner nav a{
+  flex:0 0 auto;
+  white-space:nowrap;
+  overflow-wrap:normal;
+  word-break:normal;
+  font-size:clamp(.82rem,.9vw,.96rem);
+ }
+ .head-inner nav .nav-cta{padding:15px 22px}
+}
+@media(min-width:1081px) and (max-width:1450px){
+ .head-inner{width:calc(100% - 36px);gap:14px}
+ .logo-link img{width:118px;height:54px}
+ .brand-copy strong{font-size:1.05rem}
+ .brand-copy>span{font-size:.86rem}
+ .brand-copy small{font-size:.62rem}
+ .head-inner nav{gap:10px}
+ .head-inner nav a{font-size:.79rem}
+ .head-inner nav .nav-cta{padding:12px 14px}
+}
