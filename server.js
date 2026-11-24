@@ -95,7 +95,7 @@ async function verifyTurnstile(token, remoteIp) {
 /* Simple Avon webmaster announcement administration. */
 const announcementFile = path.join(__dirname, 'data', 'announcement.json');
 const ADMIN_COOKIE = 'avon_admin_session';
-const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
+const ADMIN_SESSION_MS = 45 * 60 * 1000;
 const adminAttempts = new Map();
 const announcementUploadDir = path.join(__dirname, 'public', 'uploads', 'announcements');
 const announcementUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
@@ -255,7 +255,7 @@ function getAdminSession(req) {
   } catch { return null; }
 }
 function setAdminCookie(res, payload) {
-  res.setHeader('Set-Cookie', ADMIN_COOKIE + '=' + createAdminToken(payload) + '; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=28800');
+  res.setHeader('Set-Cookie', ADMIN_COOKIE + '=' + createAdminToken(payload) + '; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=' + Math.floor(ADMIN_SESSION_MS / 1000));
 }
 function clearAdminCookie(res) {
   res.setHeader('Set-Cookie', ADMIN_COOKIE + '=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
@@ -265,7 +265,7 @@ function adminReady() {
 }
 function requireAdmin(req, res, next) {
   const session = getAdminSession(req);
-  if (!session) return res.redirect(303, '/admin');
+  if (!session) return res.redirect(303, '/admin?next=' + encodeURIComponent(req.originalUrl || '/admin'));
   req.adminSession = session;
   next();
 }
@@ -297,6 +297,26 @@ function verifyAdminPassword(password) {
     });
   });
 }
+async function verifyAdminTurnstile(token, remoteIp) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret || !process.env.TURNSTILE_SITE_KEY || !token) return false;
+  const body = new URLSearchParams({ secret, response: token });
+  if (remoteIp) body.set('remoteip', remoteIp);
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body, signal: AbortSignal.timeout(8000)
+    });
+    if (!response.ok) return false;
+    const result = await response.json();
+    return result.success === true && result.action === 'admin_login' &&
+      ['toastmasters.net.nz', 'www.toastmasters.net.nz'].includes(result.hostname);
+  } catch (error) {
+    console.error('Admin Turnstile verification failed:', error.message);
+    return false;
+  }
+}
+
 function limitAdminLogin(ip) {
   const now = Date.now();
   let record = adminAttempts.get(ip);
@@ -472,14 +492,23 @@ app.use('/admin', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
-app.get('/admin', (req, res) => {
-  if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
+app.use('/admin', (req, res, next) => {
   const session = getAdminSession(req);
-  if (!session) return res.render('admin/login', { error: '', username: process.env.ADMIN_USERNAME || 'webmaster' });
+  if (session) {
+    session.expiresAt = Date.now() + ADMIN_SESSION_MS;
+    setAdminCookie(res, session);
+    req.adminSession = session;
+  }
+  next();
+});
+function safeAdminReturnPath(value) {\n  const candidate = typeof value === 'string' ? value : '';\n  return candidate.startsWith('/admin/') && !candidate.startsWith('//') && !candidate.includes('\\\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';\n}\n\napp.get('/admin', (req, res) => {
+  if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
+  const session = req.adminSession || getAdminSession(req);
+  if (!session) return res.render('admin/login', { error: '', next: safeAdminReturnPath(req.query.next) });
   const announcements = expireAnnouncements(readAnnouncements());
   res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', uploadedImage: safeAnnouncementImage(req.query.image), nowNZ: nzDateTime(), error: '' });
 });
-app.get('/admin/events', requireAdmin, (req, res) => {
+app.get('/admin/activity', requireAdmin, (req, res) => {\n  res.json({ ok: true, expiresAt: req.adminSession.expiresAt });\n});\n\napp.get('/admin/events', requireAdmin, (req, res) => {
   const events = readEvents().sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b)));
   res.render('admin/events', {
     username: req.adminSession.username,
@@ -543,7 +572,10 @@ app.post('/admin/events/delete', requireAdmin, (req, res) => {
 app.post('/admin/login', async (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  if (!limitAdminLogin(ip)) return res.status(429).render('admin/login', { error: 'Too many sign-in attempts. Please wait 15 minutes and try again.', username: process.env.ADMIN_USERNAME || 'webmaster' });
+  const nextPath = safeAdminReturnPath(req.body.next);
+  if (!limitAdminLogin(ip)) return res.status(429).render('admin/login', { error: 'Too many sign-in attempts. Please wait 15 minutes and try again.', next: nextPath });
+  const turnstileOk = await verifyAdminTurnstile(cleanText(req.body['cf-turnstile-response'], 4096), ip);
+  if (!turnstileOk) return res.status(400).render('admin/login', { error: 'Please complete the security check and try again.', next: nextPath });
   const username = cleanText(req.body.username, 80);
   const password = typeof req.body.password === 'string' ? req.body.password : '';
   const expectedUsername = process.env.ADMIN_USERNAME || 'webmaster';
@@ -553,11 +585,11 @@ app.post('/admin/login', async (req, res) => {
   let passwordMatches = false;
   try { passwordMatches = await verifyAdminPassword(password); }
   catch (error) { console.error('Webmaster password verification failed:', error.message); }
-  if (!usernameMatches || !passwordMatches) return res.status(401).render('admin/login', { error: 'The username or password was incorrect.', username: '' });
+  if (!usernameMatches || !passwordMatches) return res.status(401).render('admin/login', { error: 'The username or password was incorrect.', next: nextPath });
   adminAttempts.delete(ip);
   const csrf = crypto.randomBytes(24).toString('hex');
   setAdminCookie(res, { username: expectedUsername, csrf, expiresAt: Date.now() + ADMIN_SESSION_MS });
-  res.redirect(303, '/admin');
+  res.redirect(303, nextPath);
 });
 
 
