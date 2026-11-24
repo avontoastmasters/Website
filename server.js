@@ -552,12 +552,109 @@ function safeAdminReturnPath(value) {
   return (candidate === '/admin' || candidate.startsWith('/admin?') || candidate.startsWith('/admin/')) && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
 }
 
-app.get('/admin', (req, res) => {
-  if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
-  const session = req.adminSession || getAdminSession(req);
-  if (!session) return res.render('admin/login', { error: '', next: safeAdminReturnPath(req.query.next), turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
+app.get('/admin', requireAdmin, (req, res) => {
   const announcements = expireAnnouncements(readAnnouncements());
-  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', uploadedImage: safeAnnouncementImage(req.query.image), nowNZ: nzDateTime(), error: '' });
+  const events = readEvents();
+  const media = listMediaFiles ? listMediaFiles() : [];
+  res.render('admin/dashboard-home', {
+    username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf,
+    announcementCount: announcements.length, eventCount: events.length, mediaCount: media.length,
+    userCount: readAdminUsers().length
+  });
+});
+app.get('/admin/announcements', requireAdmin, (req, res) => {
+  const session = req.adminSession;
+  const announcements = expireAnnouncements(readAnnouncements());
+  res.render('admin/dashboard', { username: session.username, role: session.role, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', uploadedImage: safeAnnouncementImage(req.query.image), nowNZ: nzDateTime(), error: '' });
+});
+
+app.get('/admin/account', requireAdmin, (req, res) => {
+  res.render('admin/account', { username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf, saved: req.query.saved === '1', error: '' });
+});
+app.post('/admin/account/password', requireAdmin, async (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword : '';
+  const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
+  const confirmPassword = typeof req.body.confirmPassword === 'string' ? req.body.confirmPassword : '';
+  const users = readAdminUsers();
+  const user = users.find(item => item.id === req.adminSession.userId);
+  if (!user || !await verifyPasswordHash(currentPassword, user.passwordHash)) return res.status(400).render('admin/account', { username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf, saved: false, error: 'Your current password was incorrect.' });
+  if (newPassword.length < 12) return res.status(400).render('admin/account', { username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf, saved: false, error: 'Your new password must be at least 12 characters long.' });
+  if (newPassword !== confirmPassword) return res.status(400).render('admin/account', { username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf, saved: false, error: 'The new passwords do not match.' });
+  user.passwordHash = await hashAdminPassword(newPassword);
+  user.sessionVersion = Number(user.sessionVersion || 1) + 1;
+  user.updatedAt = new Date().toISOString();
+  writeAdminUsers(users);
+  clearAdminCookie(res);
+  res.redirect(303, '/admin');
+});
+app.get('/admin/users', requireAdministrator, (req, res) => {
+  res.render('admin/users', { username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf, users: readAdminUsers().sort((a,b) => a.createdAt.localeCompare(b.createdAt)), error: '', saved: req.query.saved === '1' });
+});
+app.post('/admin/users/create', requireAdministrator, async (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const username = cleanText(req.body.username, 40);
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
+  const role = req.body.role === 'administrator' ? 'administrator' : 'editor';
+  const users = readAdminUsers();
+  const fail = message => res.status(400).render('admin/users', { username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf, users, error: message, saved: false });
+  if (!/^[a-zA-Z0-9._-]{3,40}$/.test(username)) return fail('Usernames must be 3–40 characters and use letters, numbers, dots, underscores or hyphens.');
+  if (users.some(item => item.username.toLowerCase() === username.toLowerCase())) return fail('That username is already in use.');
+  if (password.length < 12) return fail('Passwords must be at least 12 characters long.');
+  users.push({ id: crypto.randomUUID(), username, passwordHash: await hashAdminPassword(password), role, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), sessionVersion: 1 });
+  writeAdminUsers(users);
+  res.redirect(303, '/admin/users?saved=1');
+});
+app.post('/admin/users/update', requireAdministrator, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const users = readAdminUsers();
+  const target = users.find(item => item.id === req.body.id);
+  if (!target) return res.status(404).send('Account not found.');
+  const newRole = req.body.role === 'administrator' ? 'administrator' : 'editor';
+  const enabled = req.body.enabled === 'on';
+  if (target.id === req.adminSession.userId && (!enabled || newRole !== 'administrator')) return res.status(400).send('You cannot disable or demote your own administrator account.');
+  if (target.role === 'administrator' && target.enabled && (!enabled || newRole !== 'administrator')) {
+    const activeAdmins = users.filter(item => item.role === 'administrator' && item.enabled);
+    if (activeAdmins.length <= 1) return res.status(400).send('The last active administrator cannot be disabled or demoted.');
+  }
+  target.role = newRole;
+  target.enabled = enabled;
+  target.sessionVersion = Number(target.sessionVersion || 1) + 1;
+  target.updatedAt = new Date().toISOString();
+  writeAdminUsers(users);
+  res.redirect(303, '/admin/users?saved=1');
+});
+app.post('/admin/users/password', requireAdministrator, async (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const users = readAdminUsers();
+  const target = users.find(item => item.id === req.body.id);
+  const password = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
+  if (!target) return res.status(404).send('Account not found.');
+  if (password.length < 12) return res.status(400).send('Passwords must be at least 12 characters long.');
+  target.passwordHash = await hashAdminPassword(password);
+  target.sessionVersion = Number(target.sessionVersion || 1) + 1;
+  target.updatedAt = new Date().toISOString();
+  writeAdminUsers(users);
+  res.redirect(303, '/admin/users?saved=1');
+});
+app.post('/admin/users/delete', requireAdministrator, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const users = readAdminUsers();
+  const target = users.find(item => item.id === req.body.id);
+  if (!target) return res.status(404).send('Account not found.');
+  if (target.id === req.adminSession.userId) return res.status(400).send('You cannot remove your own account.');
+  if (target.role === 'administrator' && target.enabled && users.filter(item => item.role === 'administrator' && item.enabled).length <= 1) return res.status(400).send('The last active administrator cannot be removed.');
+  writeAdminUsers(users.filter(item => item.id !== target.id));
+  res.redirect(303, '/admin/users?saved=1');
+});
+app.get('/admin/settings', requireAdministrator, (req, res) => {
+  res.render('admin/settings', { username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf, settings: readAdminSettings(), saved: req.query.saved === '1' });
+});
+app.post('/admin/settings', requireAdministrator, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const sessionMinutes = [30,45,60].includes(Number(req.body.sessionMinutes)) ? Number(req.body.sessionMinutes) : 45;
+  writeAdminSettings({ sessionMinutes });
+  res.redirect(303, '/admin/settings?saved=1');
 });
 app.get('/admin/activity', requireAdmin, (req, res) => {
   res.json({ ok: true, expiresAt: req.adminSession.expiresAt });
@@ -625,25 +722,24 @@ app.post('/admin/events/delete', requireAdmin, (req, res) => {
 });
 
 app.post('/admin/login', async (req, res) => {
-  if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
+  if (!adminReady()) return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   const nextPath = safeAdminReturnPath(req.body.next);
-  if (!limitAdminLogin(ip)) return res.status(429).render('admin/login', { error: 'Too many sign-in attempts. Please wait 15 minutes and try again.', next: nextPath, turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
+  const renderLogin = (status, error) => res.status(status).render('admin/login', { error, next: nextPath, turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
+  if (!limitAdminLogin(ip)) return renderLogin(429, 'Too many sign-in attempts. Please wait 15 minutes and try again.');
   const turnstileOk = await verifyAdminTurnstile(cleanText(req.body['cf-turnstile-response'], 4096), ip);
-  if (!turnstileOk) return res.status(400).render('admin/login', { error: 'Please complete the security check and try again.', next: nextPath, turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
+  if (!turnstileOk) return renderLogin(400, 'Please complete the security check and try again.');
   const username = cleanText(req.body.username, 80);
   const password = typeof req.body.password === 'string' ? req.body.password : '';
-  const expectedUsername = process.env.ADMIN_USERNAME || 'webmaster';
-  const suppliedUser = Buffer.from(username);
-  const expectedUser = Buffer.from(expectedUsername);
-  const usernameMatches = suppliedUser.length === expectedUser.length && crypto.timingSafeEqual(suppliedUser, expectedUser);
+  const user = readAdminUsers().find(item => item.enabled && item.username.toLowerCase() === username.toLowerCase());
   let passwordMatches = false;
-  try { passwordMatches = await verifyAdminPassword(password); }
-  catch (error) { console.error('Webmaster password verification failed:', error.message); }
-  if (!usernameMatches || !passwordMatches) return res.status(401).render('admin/login', { error: 'The username or password was incorrect.', next: nextPath, turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
+  try { passwordMatches = Boolean(user && await verifyPasswordHash(password, user.passwordHash)); }
+  catch (error) { console.error('Admin password verification failed:', error.message); }
+  if (!user || !passwordMatches) return renderLogin(401, 'The username or password was incorrect.');
   adminAttempts.delete(ip);
   const csrf = crypto.randomBytes(24).toString('hex');
-  setAdminCookie(res, { username: expectedUsername, csrf, expiresAt: Date.now() + ADMIN_SESSION_MS });
+  const settings = readAdminSettings();
+  setAdminCookie(res, { userId: user.id, username: user.username, role: user.role, sessionVersion: user.sessionVersion, csrf, expiresAt: Date.now() + settings.sessionMinutes * 60 * 1000 });
   res.redirect(303, nextPath);
 });
 
@@ -745,7 +841,7 @@ app.post('/admin/upload-image', requireAdmin, (req, res, next) => {
       .webp({ quality: 78, effort: 4 })
       .toFile(path.join(mediaUploadDir, filename));
     const imageUrl = '/uploads/media/' + filename;
-    return res.redirect(303, '/admin?image=' + encodeURIComponent(imageUrl));
+    return res.redirect(303, '/admin/announcements?image=' + encodeURIComponent(imageUrl));
   } catch (error) {
     console.error('Announcement image processing failed:', error.message);
     return res.status(400).send('That image could not be processed. Please try a JPEG, PNG, WebP, AVIF or HEIC image.');
@@ -800,7 +896,7 @@ app.post('/admin/save', requireAdmin, (req, res) => {
   }
   if (index >= 0) items[index] = item; else items.unshift(item);
   writeAnnouncements(items);
-  res.redirect(303, '/admin?saved=1');
+  res.redirect(303, '/admin/announcements?saved=1');
 });
 app.post('/admin/toggle', requireAdmin, (req, res) => {
   if (!validCsrf(req, res)) return;
