@@ -1,5 +1,6 @@
 (() => {
-  const IDLE_MS = 45 * 60 * 1000;
+  const configuredMinutes = Number(document.querySelector('meta[name="admin-session-minutes"]')?.content) || 45;
+  const IDLE_MS = configuredMinutes * 60 * 1000;
   const WARNING_MS = 2 * 60 * 1000;
   const formKey = form => 'avon-admin-draft:' + location.pathname + ':' + (form.id || form.getAttribute('action') || 'form');
   const eligible = form => form.matches('.admin-form,[data-save-draft]') && !form.matches('[data-no-draft]');
@@ -50,6 +51,7 @@
     box.hidden = false;
   };
   async function ping(force = false) {
+    if (force) { lastActivity = Date.now(); warningShown = false; const box = document.getElementById('admin-session-warning'); if (box) box.hidden = true; }
     if (pingBusy || (!force && Date.now() - lastPing < 30000)) return;
     pingBusy = true;
     try {
