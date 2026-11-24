@@ -672,3 +672,16 @@ button,input,select,textarea{font-family:"Source Sans 3","Arial",sans-serif}
   letter-spacing:-.055em;
  }
 }
+
+
+/* Homepage group photo: show the complete photograph without cropping anyone at the edges. */
+.hero-photo img,
+.hero-photo:hover img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: auto;
+  max-height: none;
+  object-fit: contain;
+  object-position: center;
+  transform: none;
+}
