@@ -277,6 +277,49 @@ async function verifyAdminTurnstile(token, remoteIp) {
   }
 }
 
+
+const adminRecoveryAttempts = new Map();
+
+async function verifyAdminRecoveryTurnstile(token, remoteIp) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret || !(process.env.TURNSTILE_SITE_KEY || ADMIN_TURNSTILE_SITE_KEY) || !token) return false;
+  const body = new URLSearchParams({ secret, response: token });
+  if (remoteIp) body.set('remoteip', remoteIp);
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!response.ok) return false;
+    const result = await response.json();
+    return result.success === true && result.action === 'admin_recovery' &&
+      ['toastmasters.net.nz', 'www.toastmasters.net.nz'].includes(result.hostname);
+  } catch (error) {
+    console.error('Admin recovery Turnstile verification failed:', error.message);
+    return false;
+  }
+}
+
+function limitAdminRecovery(ip) {
+  const now = Date.now();
+  const key = String(ip || 'unknown').slice(0, 100);
+  const record = adminRecoveryAttempts.get(key);
+  if (record && now - record.startedAt < 15 * 60 * 1000) {
+    if (record.count >= 3) return false;
+    record.count++;
+    return true;
+  }
+  adminRecoveryAttempts.set(key, { startedAt: now, count: 1 });
+  if (adminRecoveryAttempts.size > 1000) {
+    for (const [k, v] of adminRecoveryAttempts) {
+      if (now - v.startedAt >= 15 * 60 * 1000) adminRecoveryAttempts.delete(k);
+    }
+  }
+  return true;
+}
+
 function limitAdminLogin(ip) {
   const now = Date.now();
   let record = adminAttempts.get(ip);
@@ -453,22 +496,189 @@ app.use('/admin', (req, res, next) => {
   res.locals.adminSessionMinutes = readAdminSettings().sessionMinutes;
   next();
 });
-app.use('/admin', (req,res,next)=>{const session=getAdminSession(req);if(session){session.expiresAt=Date.now()+readAdminSettings().sessionMinutes*60000;setAdminCookie(res,session);req.adminSession=session;res.locals.adminUserKey=session.userId}next()});
+app.use('/admin', (req,res,next)=>{const session=getAdminSession(req);if(session){session.expiresAt=Date.now()+readAdminSettings().sessionMinutes*60000;setAdminCookie(res,session);req.adminSession=session;res.locals.adminUserKey=session.userId;const path=req.originalUrl.split('?')[0];if(readAdminUsers().some(u=>u.id===session.userId&&u.mustChangePassword)&&!['/admin/first-login','/admin/logout'].includes(path))return res.redirect(303,'/admin/first-login')}next()});
+
+function renderAdminForgotPassword(res, status = 200, error = '', sent = false) {
+  return res.status(status).render('admin/forgot-password', {
+    error,
+    sent,
+    turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || ADMIN_TURNSTILE_SITE_KEY || ''
+  });
+}
+
+function findAdminResetUser(token, users) {
+  if (typeof token !== 'string' || token.length < 32 || token.length > 200) return null;
+  const supplied = crypto.createHash('sha256').update(token).digest();
+  for (const user of users) {
+    const stored = user.resetTokenHash;
+    if (!/^[a-f0-9]{64}$/i.test(String(stored || ''))) continue;
+    const expected = Buffer.from(stored, 'hex');
+    if (expected.length === supplied.length &&
+        crypto.timingSafeEqual(expected, supplied) &&
+        Number(user.resetTokenExpiresAt) > Date.now() &&
+        user.enabled) return user;
+  }
+  return null;
+}
+
+app.get('/admin/forgot-password', (req, res) => {
+  renderAdminForgotPassword(res);
+});
+
+app.post('/admin/forgot-password', async (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+
+  if (!limitAdminRecovery(ip)) {
+    return renderAdminForgotPassword(res, 200, '', true);
+  }
+
+  const challenge = cleanText(req.body['cf-turnstile-response'], 4096);
+  if (!await verifyAdminRecoveryTurnstile(challenge, ip)) {
+    return renderAdminForgotPassword(res, 400, 'Please complete the security check and try again.');
+  }
+
+  const email = cleanText(req.body.email, 254).toLowerCase();
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (emailPattern.test(email)) {
+    const users = readAdminUsers();
+    const user = users.find(u =>
+      u.enabled && String(u.email || '').toLowerCase() === email
+    );
+
+    if (user) {
+      const token = crypto.randomBytes(32).toString('base64url');
+      user.resetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      user.resetTokenExpiresAt = Date.now() + 30 * 60 * 1000;
+      writeAdminUsers(users);
+
+      const smtpUser = process.env.SMTP_USER;
+      const smtpPass = process.env.SMTP_PASS;
+
+      if (smtpUser && smtpPass) {
+        let transporter;
+        try {
+          transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST || 'smtp.fastmail.com',
+            port: Number(process.env.SMTP_PORT || 465),
+            secure: true,
+            auth: { user: smtpUser, pass: smtpPass },
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 15000
+          });
+
+          const resetUrl = 'https://toastmasters.net.nz/admin/reset-password?token=' +
+            encodeURIComponent(token);
+
+          await transporter.sendMail({
+            from: { name: 'Avon Toastmasters Website', address: smtpUser },
+            to: user.email,
+            subject: 'Reset your Avon Toastmasters website password',
+            text: [
+              'A password reset was requested for your Avon Toastmasters website administrator account.',
+              '',
+              'Use the following link to choose a new password:',
+              resetUrl,
+              '',
+              'This link expires in 30 minutes and can only be used once.',
+              'If you did not request this reset, you can safely ignore this email.',
+              '',
+              'For security, no password is included in this email.'
+            ].join('\n')
+          });
+        } catch (error) {
+          console.error('Admin password recovery email failed:', error.message);
+          delete user.resetTokenHash;
+          delete user.resetTokenExpiresAt;
+          writeAdminUsers(users);
+        } finally {
+          if (transporter) {
+            try { transporter.close(); } catch {}
+          }
+        }
+      } else {
+        console.error('Admin password recovery unavailable: SMTP credentials are not configured.');
+        delete user.resetTokenHash;
+        delete user.resetTokenExpiresAt;
+        writeAdminUsers(users);
+      }
+    }
+  }
+
+  // Identical response for existing and non-existing email addresses.
+  return renderAdminForgotPassword(res, 200, '', true);
+});
+
+app.get('/admin/reset-password', (req, res) => {
+  const token = typeof req.query.token === 'string' ? req.query.token : '';
+  const user = findAdminResetUser(token, readAdminUsers());
+
+  if (!user) {
+    return res.status(400).render('admin/reset-password', {
+      token: '',
+      error: 'This password reset link is invalid or has expired. Please request a new one.',
+      invalid: true
+    });
+  }
+
+  return res.render('admin/reset-password', {
+    token,
+    error: '',
+    invalid: false
+  });
+});
+
+app.post('/admin/reset-password', async (req, res) => {
+  const token = typeof req.body.token === 'string' ? req.body.token : '';
+  const users = readAdminUsers();
+  const user = findAdminResetUser(token, users);
+
+  const fail = message => res.status(400).render('admin/reset-password', {
+    token: user ? token : '',
+    error: message,
+    invalid: !user
+  });
+
+  if (!user) {
+    return fail('This password reset link is invalid or has expired. Please request a new one.');
+  }
+
+  const password = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
+  const confirmation = typeof req.body.confirmPassword === 'string' ? req.body.confirmPassword : '';
+
+  if (password.length < 12) {
+    return fail('Your new password must be at least 12 characters long.');
+  }
+  if (password !== confirmation) {
+    return fail('The new passwords do not match.');
+  }
+
+  user.passwordHash = await hashAdminPassword(password);
+  user.sessionVersion = Number(user.sessionVersion || 1) + 1;
+  user.updatedAt = new Date().toISOString();
+  delete user.resetTokenHash;
+  delete user.resetTokenExpiresAt;
+  writeAdminUsers(users);
+
+  return res.redirect(303, '/admin?reset=1');
+});
+
 function safeAdminReturnPath(value) {
   const candidate = typeof value === 'string' ? value : '';
   return (candidate === '/admin' || candidate.startsWith('/admin?') || candidate.startsWith('/admin/')) && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
 }
 
-app.get('/admin',(req,res)=>{if(!adminReady())return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');const u=req.adminSession||getAdminSession(req);if(!u)return res.render('admin/login',{error:'',next:safeAdminReturnPath(req.query.next),turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||''});res.render('admin/dashboard-home',{username:u.username,role:u.role,csrf:u.csrf,announcementCount:expireAnnouncements(readAnnouncements()).length,eventCount:readEvents().length,mediaCount:listMediaFiles().length,userCount:u.role==='administrator'?readAdminUsers().length:null})});
+app.get('/admin',(req,res)=>{if(!adminReady())return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');const u=req.adminSession||getAdminSession(req);if(!u)return res.render('admin/login',{error:'',next:safeAdminReturnPath(req.query.next),turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||'',resetSuccess:req.query.reset==='1'});res.render('admin/dashboard-home',{username:u.username,role:u.role,csrf:u.csrf,announcementCount:expireAnnouncements(readAnnouncements()).length,eventCount:readEvents().length,mediaCount:listMediaFiles().length,userCount:u.role==='administrator'?readAdminUsers().length:null})});
 app.get('/admin/announcements',requireAdmin,(req,res)=>{const u=req.adminSession,announcements=expireAnnouncements(readAnnouncements());res.render('admin/dashboard',{username:u.username,role:u.role,csrf:u.csrf,announcements,editing:announcements.find(x=>x.id===req.query.edit)||null,saved:req.query.saved==='1',uploadedImage:safeAnnouncementImage(req.query.image),nowNZ:nzDateTime(),error:''})});
 
 app.get('/admin/account',requireAdmin,(req,res)=>res.render('admin/account',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,saved:req.query.saved==='1',error:''}));
 app.post('/admin/account/password',requireAdmin,async(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.adminSession.userId),cur=typeof req.body.currentPassword==='string'?req.body.currentPassword:'',pw=typeof req.body.newPassword==='string'?req.body.newPassword:'',confirm=typeof req.body.confirmPassword==='string'?req.body.confirmPassword:'';const fail=error=>res.status(400).render('admin/account',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,saved:false,error});if(!u||!await verifyPasswordHash(cur,u.passwordHash))return fail('Your current password was incorrect.');if(pw.length<12)return fail('Your new password must be at least 12 characters long.');if(pw!==confirm)return fail('The new passwords do not match.');u.passwordHash=await hashAdminPassword(pw);u.sessionVersion=Number(u.sessionVersion||1)+1;u.updatedAt=new Date().toISOString();writeAdminUsers(users);clearAdminCookie(res);res.redirect(303,'/admin')});
 app.get('/admin/users',requireAdministrator,(req,res)=>res.render('admin/users',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,users:readAdminUsers().sort((a,b)=>a.createdAt.localeCompare(b.createdAt)),error:'',saved:req.query.saved==='1'}));
-app.post('/admin/users/create',requireAdministrator,async(req,res)=>{if(!validCsrf(req,res))return;const username=cleanText(req.body.username,40),password=typeof req.body.password==='string'?req.body.password:'',role=req.body.role==='administrator'?'administrator':'editor',users=readAdminUsers(),fail=error=>res.status(400).render('admin/users',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,users,error,saved:false});if(!/^[a-zA-Z0-9._-]{3,40}$/.test(username))return fail('Usernames must be 3–40 characters and use letters, numbers, dots, underscores or hyphens.');if(users.some(x=>x.username.toLowerCase()===username.toLowerCase()))return fail('That username is already in use.');if(password.length<12)return fail('Passwords must be at least 12 characters long.');users.push({id:crypto.randomUUID(),username,passwordHash:await hashAdminPassword(password),role,enabled:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),sessionVersion:1});writeAdminUsers(users);res.redirect(303,'/admin/users?saved=1')});
-app.post('/admin/users/update',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.body.id);if(!u)return res.status(404).send('Account not found.');const role=req.body.role==='administrator'?'administrator':'editor',enabled=req.body.enabled==='on';if(u.id===req.adminSession.userId&&(!enabled||role!=='administrator'))return res.status(400).send('You cannot disable or demote your own administrator account.');if(u.role==='administrator'&&u.enabled&&(!enabled||role!=='administrator')&&users.filter(x=>x.role==='administrator'&&x.enabled).length<=1)return res.status(400).send('The last active administrator cannot be disabled or demoted.');u.role=role;u.enabled=enabled;u.sessionVersion=Number(u.sessionVersion||1)+1;u.updatedAt=new Date().toISOString();writeAdminUsers(users);res.redirect(303,'/admin/users?saved=1')});
-app.post('/admin/users/password',requireAdministrator,async(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.body.id),pw=typeof req.body.newPassword==='string'?req.body.newPassword:'';if(!u)return res.status(404).send('Account not found.');if(pw.length<12)return res.status(400).send('Passwords must be at least 12 characters long.');u.passwordHash=await hashAdminPassword(pw);u.sessionVersion=Number(u.sessionVersion||1)+1;u.updatedAt=new Date().toISOString();writeAdminUsers(users);res.redirect(303,'/admin/users?saved=1')});
-app.post('/admin/users/delete',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.body.id);if(!u)return res.status(404).send('Account not found.');if(u.id===req.adminSession.userId)return res.status(400).send('You cannot remove your own account.');if(u.role==='administrator'&&u.enabled&&users.filter(x=>x.role==='administrator'&&x.enabled).length<=1)return res.status(400).send('The last active administrator cannot be removed.');writeAdminUsers(users.filter(x=>x.id!==u.id));res.redirect(303,'/admin/users?saved=1')});
+app.post('/admin/users/create',requireAdministrator,async(req,res)=>{if(!validCsrf(req,res))return;const username=cleanText(req.body.username,40),email=cleanText(req.body.email,254).toLowerCase(),password=typeof req.body.password==='string'?req.body.password:'',role=req.body.role==='administrator'?'administrator':'editor',users=readAdminUsers(),fail=error=>res.status(400).render('admin/users',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,users,error,saved:false});if(!/^[a-zA-Z0-9._-]{3,40}$/.test(username))return fail('Usernames must be 3–40 characters and use letters, numbers, dots, underscores or hyphens.');if(users.some(x=>x.username.toLowerCase()===username.toLowerCase()))return fail('That username is already in use.');if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return fail('Enter a valid email address or leave the field blank.');if(email&&users.some(x=>String(x.email||'').toLowerCase()===email))return fail('That email address is already in use.');if(password.length<12)return fail('Passwords must be at least 12 characters long.');users.push({id:crypto.randomUUID(),username,email,passwordHash:await hashAdminPassword(password),role,enabled:true,mustChangePassword:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),sessionVersion:1});writeAdminUsers(users);res.redirect(303,'/admin/users?saved=1')});
+app.post('/admin/users/update',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.body.id);if(!u)return res.status(404).send('Account not found.');if(String(u.username||'').toLowerCase()==='webmaster')return res.status(403).send('The protected webmaster account cannot be changed here.');const role=req.body.role==='administrator'?'administrator':'editor',enabled=req.body.enabled==='on';if(u.id===req.adminSession.userId&&(!enabled||role!=='administrator'))return res.status(400).send('You cannot disable or demote your own administrator account.');if(u.role==='administrator'&&u.enabled&&(!enabled||role!=='administrator')&&users.filter(x=>x.role==='administrator'&&x.enabled).length<=1)return res.status(400).send('The last active administrator cannot be disabled or demoted.');u.role=role;u.enabled=enabled;u.sessionVersion=Number(u.sessionVersion||1)+1;u.updatedAt=new Date().toISOString();writeAdminUsers(users);res.redirect(303,'/admin/users?saved=1')});
+app.post('/admin/users/password',requireAdministrator,async(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.body.id),pw=typeof req.body.newPassword==='string'?req.body.newPassword:'';if(!u)return res.status(404).send('Account not found.');if(String(u.username||'').toLowerCase()==='webmaster')return res.status(403).send('The protected webmaster account password cannot be reset by another administrator.');if(pw.length<12)return res.status(400).send('Passwords must be at least 12 characters long.');u.passwordHash=await hashAdminPassword(pw);u.sessionVersion=Number(u.sessionVersion||1)+1;u.updatedAt=new Date().toISOString();writeAdminUsers(users);res.redirect(303,'/admin/users?saved=1')});
+app.post('/admin/users/delete',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.body.id);if(!u)return res.status(404).send('Account not found.');if(String(u.username||'').toLowerCase()==='webmaster')return res.status(403).send('The protected webmaster account cannot be removed.');if(u.id===req.adminSession.userId)return res.status(400).send('You cannot remove your own account.');if(u.role==='administrator'&&u.enabled&&users.filter(x=>x.role==='administrator'&&x.enabled).length<=1)return res.status(400).send('The last active administrator cannot be removed.');writeAdminUsers(users.filter(x=>x.id!==u.id));res.redirect(303,'/admin/users?saved=1')});
 app.get('/admin/settings',requireAdministrator,(req,res)=>res.render('admin/settings',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,settings:readAdminSettings(),saved:req.query.saved==='1'}));
 app.post('/admin/settings',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const sessionMinutes=[30,45,60].includes(Number(req.body.sessionMinutes))?Number(req.body.sessionMinutes):45;writeAdminSettings({sessionMinutes});res.redirect(303,'/admin/settings?saved=1')});
 app.get('/admin/activity', requireAdmin, (req, res) => {
@@ -537,7 +747,49 @@ app.post('/admin/events/delete', requireAdmin, (req, res) => {
   res.redirect(303, '/admin/events?saved=1');
 });
 
-app.post('/admin/login',async(req,res)=>{if(!adminReady())return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');const ip=req.ip||req.socket.remoteAddress||'unknown',next=safeAdminReturnPath(req.body.next),render=(status,error)=>res.status(status).render('admin/login',{error,next,turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||''});if(!limitAdminLogin(ip))return render(429,'Too many sign-in attempts. Please wait 15 minutes and try again.');if(!await verifyAdminTurnstile(cleanText(req.body['cf-turnstile-response'],4096),ip))return render(400,'Please complete the security check and try again.');const username=cleanText(req.body.username,80),password=typeof req.body.password==='string'?req.body.password:'',user=readAdminUsers().find(x=>x.enabled&&x.username.toLowerCase()===username.toLowerCase());let ok=false;try{ok=Boolean(user&&await verifyPasswordHash(password,user.passwordHash))}catch(e){console.error('Admin password verification failed:',e.message)}if(!user||!ok)return render(401,'The username or password was incorrect.');adminAttempts.delete(ip);const csrf=crypto.randomBytes(24).toString('hex'),minutes=readAdminSettings().sessionMinutes;setAdminCookie(res,{userId:user.id,username:user.username,role:user.role,sessionVersion:Number(user.sessionVersion||1),csrf,expiresAt:Date.now()+minutes*60000});res.redirect(303,next)});
+
+app.get('/admin/first-login',(req,res)=>{
+  const session=req.adminSession;
+  if(!session)return res.redirect(303,'/admin');
+  const user=readAdminUsers().find(x=>x.id===session.userId);
+  if(!user||!user.mustChangePassword)return res.redirect(303,'/admin');
+  res.render('admin/first-login',{username:user.username,csrf:session.csrf,error:''});
+});
+
+app.post('/admin/first-login',async(req,res)=>{
+  const session=req.adminSession;
+  if(!session)return res.redirect(303,'/admin');
+  if(!validCsrf(req,res))return;
+
+  const users=readAdminUsers();
+  const user=users.find(x=>x.id===session.userId);
+  const email=cleanText(req.body.email,254).toLowerCase();
+  const password=typeof req.body.newPassword==='string'?req.body.newPassword:'';
+  const confirm=typeof req.body.confirmPassword==='string'?req.body.confirmPassword:'';
+
+  const fail=error=>res.status(400).render('admin/first-login',{
+    username:session.username,csrf:session.csrf,error
+  });
+
+  if(!user||!user.mustChangePassword)return res.redirect(303,'/admin');
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return fail('Enter a valid email address.');
+  if(users.some(x=>x.id!==user.id&&String(x.email||'').toLowerCase()===email))
+    return fail('That email address is already in use.');
+  if(password.length<12)return fail('Your new password must be at least 12 characters long.');
+  if(password!==confirm)return fail('The passwords do not match.');
+
+  user.email=email;
+  user.passwordHash=await hashAdminPassword(password);
+  user.mustChangePassword=false;
+  user.sessionVersion=Number(user.sessionVersion||1)+1;
+  user.updatedAt=new Date().toISOString();
+
+  writeAdminUsers(users);
+  clearAdminCookie(res);
+  res.redirect(303,'/admin');
+});
+
+app.post('/admin/login',async(req,res)=>{if(!adminReady())return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');const ip=req.ip||req.socket.remoteAddress||'unknown',next=safeAdminReturnPath(req.body.next),render=(status,error)=>res.status(status).render('admin/login',{error,next,turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||''});if(!limitAdminLogin(ip))return render(429,'Too many sign-in attempts. Please wait 15 minutes and try again.');if(!await verifyAdminTurnstile(cleanText(req.body['cf-turnstile-response'],4096),ip))return render(400,'Please complete the security check and try again.');const username=cleanText(req.body.username,254),password=typeof req.body.password==='string'?req.body.password:'',user=readAdminUsers().find(x=>x.enabled&&(x.username.toLowerCase()===username.toLowerCase()||(x.email&&x.email.toLowerCase()===username.toLowerCase())));let ok=false;try{ok=Boolean(user&&await verifyPasswordHash(password,user.passwordHash))}catch(e){console.error('Admin password verification failed:',e.message)}if(!user||!ok)return render(401,'The username or password was incorrect.');adminAttempts.delete(ip);const csrf=crypto.randomBytes(24).toString('hex'),minutes=readAdminSettings().sessionMinutes;setAdminCookie(res,{userId:user.id,username:user.username,role:user.role,sessionVersion:Number(user.sessionVersion||1),csrf,expiresAt:Date.now()+minutes*60000});res.redirect(303,user.mustChangePassword?'/admin/first-login':next)});
 
 
 

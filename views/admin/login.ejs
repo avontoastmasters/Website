@@ -19,16 +19,18 @@
       <p class="admin-eyebrow">WEBSITE ADMINISTRATION</p>
       <h1>Welcome back</h1>
       <p class="admin-muted">Sign in to manage the Avon Toastmasters website.</p>
+      <% if (typeof resetSuccess !== "undefined" && resetSuccess) { %><p class="admin-alert" role="status">Your password has been reset. Please sign in with your new password.</p><% } %>
       <% if (error) { %><p class="admin-alert admin-alert--error" role="alert"><%= error %></p><% } %>
       <form method="post" action="/admin/login" class="admin-form">
         <input type="hidden" name="next" value="<%= next || '/admin' %>">
-        <label for="username">Username</label>
-        <input id="username" name="username" type="text" autocomplete="off" value="" required maxlength="80">
+        <label for="username">Username or email</label>
+        <input id="username" name="username" type="text" autocomplete="off" value="" required maxlength="254">
         <label for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="off" required>
         <div class="cf-turnstile" data-sitekey="<%= typeof turnstileSiteKey !== 'undefined' ? turnstileSiteKey : '' %>" data-action="admin_login"></div>
         <button class="admin-button" type="submit">Sign in <span aria-hidden="true">→</span></button>
       </form>
+      <p class="admin-muted"><a href="/admin/forgot-password">Forgot your password?</a></p>
       <a class="admin-back-link" href="/">← Back to website</a>
     </section>
     <p class="admin-footer">Avon Toastmasters · Christchurch, New Zealand</p>
