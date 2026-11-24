@@ -455,7 +455,7 @@ app.use('/admin', (req, res, next) => {
 app.use('/admin', (req,res,next)=>{const session=getAdminSession(req);if(session){session.expiresAt=Date.now()+readAdminSettings().sessionMinutes*60000;setAdminCookie(res,session);req.adminSession=session}next()});
 function safeAdminReturnPath(value) {
   const candidate = typeof value === 'string' ? value : '';
-  return candidate.startsWith('/admin/') && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
+  return (candidate === '/admin' || candidate.startsWith('/admin?') || candidate.startsWith('/admin/')) && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
 }
 
 app.get('/admin',(req,res)=>{if(!adminReady())return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');const u=req.adminSession||getAdminSession(req);if(!u)return res.render('admin/login',{error:'',next:safeAdminReturnPath(req.query.next),turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||''});res.render('admin/dashboard-home',{username:u.username,role:u.role,csrf:u.csrf,announcementCount:expireAnnouncements(readAnnouncements()).length,eventCount:readEvents().length,mediaCount:listMediaFiles().length,userCount:u.role==='administrator'?readAdminUsers().length:null})});
@@ -711,7 +711,7 @@ app.post('/admin/toggle', requireAdmin, (req, res) => {
   }
   item.enabled = shouldEnable;
   writeAnnouncements(items);
-  res.redirect(303, '/admin?saved=1');
+  res.redirect(303, '/admin/announcements?saved=1');
 });
 app.post('/admin/delete', requireAdmin, (req, res) => {
   if (!validCsrf(req, res)) return;
