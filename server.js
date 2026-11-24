@@ -503,7 +503,7 @@ app.use('/admin', (req, res, next) => {
 });
 function safeAdminReturnPath(value) {
   const candidate = typeof value === 'string' ? value : '';
-  return candidate.startsWith('/admin/') && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
+  return (candidate === '/admin' || candidate.startsWith('/admin?') || candidate.startsWith('/admin/')) && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
 }
 
 app.get('/admin', (req, res) => {
