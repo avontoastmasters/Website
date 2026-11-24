@@ -17,10 +17,10 @@
     if (!eligible(form)) return;
     const key = formKey(form);
     if (new URLSearchParams(location.search).get('saved') === '1') {
-      try { localStorage.removeItem(key); } catch {}
+      try { sessionStorage.removeItem(key); } catch {}
     } else {
       try {
-        const saved = JSON.parse(localStorage.getItem(key) || 'null');
+        const saved = JSON.parse(sessionStorage.getItem(key) || 'null');
         if (saved) for (const field of form.elements) {
           if (!field.name || !(field.name in saved) || ['password','file','hidden','submit','button'].includes(field.type) || field.name === 'csrf') continue;
           if (field.type === 'checkbox' || field.type === 'radio') field.checked = Boolean(saved[field.name]);
