@@ -91,7 +91,7 @@ const announcementUploadDir = path.join(__dirname, 'public', 'uploads', 'announc
 const announcementUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
 function safeAnnouncementImage(value) {
   const image = cleanText(value, 240);
-  return /^\/uploads\/announcements\/[a-f0-9-]{36}\.webp$/.test(image) ? image : '';
+  return /^\/uploads\/(?:announcements|media)\/[a-f0-9-]{36}\.webp$/.test(image) ? image : '';
 }
 
 function readAnnouncements() {
@@ -392,6 +392,72 @@ app.post('/admin/login', async (req, res) => {
   const csrf = crypto.randomBytes(24).toString('hex');
   setAdminCookie(res, { username: expectedUsername, csrf, expiresAt: Date.now() + ADMIN_SESSION_MS });
   res.redirect(303, '/admin');
+});
+
+
+const mediaUploadDir = path.join(__dirname, 'public', 'uploads', 'media');
+function listMediaFiles() {
+  try {
+    return fs.readdirSync(mediaUploadDir, { withFileTypes: true })
+      .filter(entry => entry.isFile() && /^[a-f0-9-]{36}\\.webp$/.test(entry.name))
+      .map(entry => {
+        const filename = entry.name;
+        const fullPath = path.join(mediaUploadDir, filename);
+        const stat = fs.statSync(fullPath);
+        let dimensions = '';
+        try { const meta = sharp(fullPath).metadata(); } catch {}
+        return { filename, url: '/uploads/media/' + filename, bytes: stat.size, modified: stat.mtime.toISOString() };
+      }).sort((a,b) => b.modified.localeCompare(a.modified));
+  } catch { return []; }
+}
+app.get('/admin/media', requireAdmin, (req, res) => {
+  res.render('admin/media', {
+    username: req.adminSession.username,
+    csrf: req.adminSession.csrf,
+    files: listMediaFiles(),
+    uploaded: req.query.uploaded === '1',
+    error: ''
+  });
+});
+app.post('/admin/media/upload', requireAdmin, (req, res, next) => {
+  announcementUpload.single('mediaImage')(req, res, error => {
+    if (error) {
+      if (error.code === 'LIMIT_FILE_SIZE') return res.status(413).send('Image is too large. Please choose an image under 8 MB.');
+      return res.status(400).send('Please choose one valid image file.');
+    }
+    next();
+  });
+}, async (req, res) => {
+  if (!validCsrf(req, res)) return;
+  if (!req.file) return res.status(400).send('Please choose an image to upload.');
+  try {
+    const metadata = await sharp(req.file.buffer, { limitInputPixels: 40000000 }).metadata();
+    if (!['jpeg', 'png', 'webp', 'avif'].includes(metadata.format)) {
+      return res.status(400).send('Please upload a JPEG, PNG, WebP or AVIF image.');
+    }
+    const filename = crypto.randomUUID() + '.webp';
+    fs.mkdirSync(mediaUploadDir, { recursive: true, mode: 0o750 });
+    await sharp(req.file.buffer, { limitInputPixels: 40000000 })
+      .rotate()
+      .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 80, effort: 4 })
+      .toFile(path.join(mediaUploadDir, filename));
+    return res.redirect(303, '/admin/media?uploaded=1');
+  } catch (error) {
+    console.error('Media image processing failed:', error.message);
+    return res.status(400).send('That image could not be processed. Please try a JPEG, PNG, WebP or AVIF image.');
+  }
+});
+app.post('/admin/media/delete', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+  const filename = cleanText(req.body.filename, 60);
+  if (!/^[a-f0-9-]{36}\\.webp$/.test(filename)) return res.status(400).send('Invalid image filename.');
+  const filePath = path.join(mediaUploadDir, filename);
+  try { fs.unlinkSync(filePath); } catch (error) {
+    if (error.code === 'ENOENT') return res.status(404).send('Image not found.');
+    throw error;
+  }
+  res.redirect(303, '/admin/media');
 });
 
 app.post('/admin/upload-image', requireAdmin, (req, res, next) => {
