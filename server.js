@@ -501,14 +501,23 @@ app.use('/admin', (req, res, next) => {
   }
   next();
 });
-function safeAdminReturnPath(value) {\n  const candidate = typeof value === 'string' ? value : '';\n  return candidate.startsWith('/admin/') && !candidate.startsWith('//') && !candidate.includes('\\\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';\n}\n\napp.get('/admin', (req, res) => {
+function safeAdminReturnPath(value) {
+  const candidate = typeof value === 'string' ? value : '';
+  return candidate.startsWith('/admin/') && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
+}
+
+app.get('/admin', (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
   const session = req.adminSession || getAdminSession(req);
-  if (!session) return res.render('admin/login', { error: '', next: safeAdminReturnPath(req.query.next) });
+  if (!session) return res.render('admin/login', { error: '', next: safeAdminReturnPath(req.query.next), turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
   const announcements = expireAnnouncements(readAnnouncements());
   res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', uploadedImage: safeAnnouncementImage(req.query.image), nowNZ: nzDateTime(), error: '' });
 });
-app.get('/admin/activity', requireAdmin, (req, res) => {\n  res.json({ ok: true, expiresAt: req.adminSession.expiresAt });\n});\n\napp.get('/admin/events', requireAdmin, (req, res) => {
+app.get('/admin/activity', requireAdmin, (req, res) => {
+  res.json({ ok: true, expiresAt: req.adminSession.expiresAt });
+});
+
+app.get('/admin/events', requireAdmin, (req, res) => {
   const events = readEvents().sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b)));
   res.render('admin/events', {
     username: req.adminSession.username,
@@ -573,9 +582,9 @@ app.post('/admin/login', async (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   const nextPath = safeAdminReturnPath(req.body.next);
-  if (!limitAdminLogin(ip)) return res.status(429).render('admin/login', { error: 'Too many sign-in attempts. Please wait 15 minutes and try again.', next: nextPath });
+  if (!limitAdminLogin(ip)) return res.status(429).render('admin/login', { error: 'Too many sign-in attempts. Please wait 15 minutes and try again.', next: nextPath, turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
   const turnstileOk = await verifyAdminTurnstile(cleanText(req.body['cf-turnstile-response'], 4096), ip);
-  if (!turnstileOk) return res.status(400).render('admin/login', { error: 'Please complete the security check and try again.', next: nextPath });
+  if (!turnstileOk) return res.status(400).render('admin/login', { error: 'Please complete the security check and try again.', next: nextPath, turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
   const username = cleanText(req.body.username, 80);
   const password = typeof req.body.password === 'string' ? req.body.password : '';
   const expectedUsername = process.env.ADMIN_USERNAME || 'webmaster';
@@ -585,7 +594,7 @@ app.post('/admin/login', async (req, res) => {
   let passwordMatches = false;
   try { passwordMatches = await verifyAdminPassword(password); }
   catch (error) { console.error('Webmaster password verification failed:', error.message); }
-  if (!usernameMatches || !passwordMatches) return res.status(401).render('admin/login', { error: 'The username or password was incorrect.', next: nextPath });
+  if (!usernameMatches || !passwordMatches) return res.status(401).render('admin/login', { error: 'The username or password was incorrect.', next: nextPath, turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
   adminAttempts.delete(ip);
   const csrf = crypto.randomBytes(24).toString('hex');
   setAdminCookie(res, { username: expectedUsername, csrf, expiresAt: Date.now() + ADMIN_SESSION_MS });
