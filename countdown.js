@@ -60,8 +60,17 @@
         const now = new Date();
         const today = localParts(now);
         const meetingDay = isMeetingDay(today.year, today.month, today.day);
-        const minutesToday = today.hour * 60 + today.minute;
-        const meetingInProgress = meetingDay && minutesToday >= 19 * 60 + 30 && minutesToday < 20 * 60 + 30;
+        // The club meeting runs from 7:30 pm to 8:30 pm Christchurch time.
+        // Use real instants (not rounded minutes) so the countdown resets
+        // immediately at 8:30 pm, including when the page has been left open.
+        const meetingStart = christchurchTime(today.year, today.month, today.day, 19).getTime() + 30 * 60 * 1000;
+        const meetingEnd = christchurchTime(today.year, today.month, today.day, 20).getTime() + 30 * 60 * 1000;
+        const meetingInProgress = meetingDay &&
+          now.getTime() >= meetingStart && now.getTime() < meetingEnd;
+
+        // Once the meeting has finished, discard any previous target and
+        // calculate the next 1st, 2nd or 4th Tuesday meeting afresh.
+        if (meetingDay && now.getTime() >= meetingEnd) target = null;
         if (!target || target.getTime() <= now.getTime()) target = findNext(now);
         if (meetingInProgress) {
           if (labelNode) labelNode.textContent = "AVON TOASTMASTERS IS UNDER WAY";
