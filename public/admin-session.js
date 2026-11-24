@@ -59,7 +59,6 @@
         location.href = '/admin?next=' + encodeURIComponent(location.pathname + location.search);
         return;
       }
-      lastActivity = Date.now();
       warningShown = false;
       const warning = document.getElementById('admin-session-warning');
       if (warning) warning.hidden = true;
