@@ -61,7 +61,7 @@
         const today = localParts(now);
         const meetingDay = isMeetingDay(today.year, today.month, today.day);
         const minutesToday = today.hour * 60 + today.minute;
-        const meetingInProgress = meetingDay && minutesToday >= 19 * 60 && minutesToday < 20 * 60 + 45;
+        const meetingInProgress = meetingDay && minutesToday >= 19 * 60 + 30 && minutesToday < 20 * 60 + 30;
         if (!target || target.getTime() <= now.getTime()) target = findNext(now);
         if (meetingInProgress) {
           if (labelNode) labelNode.textContent = "AVON TOASTMASTERS IS UNDER WAY";
