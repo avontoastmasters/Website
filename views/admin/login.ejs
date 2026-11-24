@@ -5,25 +5,28 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <meta name="theme-color" content="#004165">
-  <title>Webmaster Login | Avon Toastmasters</title>
+  <title>Admin Login | Avon Toastmasters</title>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="stylesheet" href="/admin.css">
 </head>
 <body class="admin-body">
   <main class="admin-shell admin-shell--login">
     <a class="admin-brand" href="/" aria-label="Avon Toastmasters home">
       <span class="admin-brand__mark">AVON</span>
-      <span><strong>TOASTMASTERS</strong><small>WEBMASTER DASHBOARD</small></span>
+      <span><strong>TOASTMASTERS</strong><small>WEBSITE ADMINISTRATION</small></span>
     </a>
     <section class="admin-card">
       <p class="admin-eyebrow">WEBSITE ADMINISTRATION</p>
       <h1>Welcome back</h1>
-      <p class="admin-muted">Sign in to manage the Avon Toastmasters announcement banner.</p>
+      <p class="admin-muted">Sign in to manage the Avon Toastmasters website.</p>
       <% if (error) { %><p class="admin-alert admin-alert--error" role="alert"><%= error %></p><% } %>
       <form method="post" action="/admin/login" class="admin-form">
+        <input type="hidden" name="next" value="<%= next || '/admin' %>">
         <label for="username">Username</label>
-        <input id="username" name="username" type="text" autocomplete="username" value="<%= username %>" required maxlength="80">
+        <input id="username" name="username" type="text" autocomplete="username" value="" required maxlength="80">
         <label for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <div class="cf-turnstile" data-sitekey="<%= typeof turnstileSiteKey !== 'undefined' ? turnstileSiteKey : '' %>" data-action="admin_login"></div>
         <button class="admin-button" type="submit">Sign in <span aria-hidden="true">→</span></button>
       </form>
       <a class="admin-back-link" href="/">← Back to website</a>
