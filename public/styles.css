@@ -794,3 +794,28 @@ button,input,select,textarea{font-family:"Source Sans 3","Arial",sans-serif}
   }
 }
 
+
+/* Desktop header: use the full width and align navigation to the right */
+@media screen and (min-width:1201px) {
+  .header .head-inner.wrap {
+    width: calc(100% - 32px) !important;
+    max-width: none !important;
+  }
+
+  .header .head-inner nav {
+    flex: 1 1 auto !important;
+    justify-content: flex-end !important;
+    gap: clamp(18px, 1.15vw, 23px) !important;
+    margin-left: 20px !important;
+  }
+
+  .header .head-inner nav a {
+    font-size: .9rem !important;
+    white-space: nowrap !important;
+  }
+
+  .header .head-inner nav .nav-cta {
+    margin-left: 8px !important;
+  }
+}
+
