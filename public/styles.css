@@ -685,3 +685,57 @@ button,input,select,textarea{font-family:"Source Sans 3","Arial",sans-serif}
   object-position: center;
   transform: none;
 }
+
+
+/* FIX: this is the stylesheet served by Express (/styles.css). Desktop navbar must stay on one line. */
+@media screen and (min-width:901px){
+ .header .head-inner.wrap{
+  width:calc(100% - 32px)!important;
+  max-width:1700px!important;
+  display:flex!important;
+  flex-flow:row nowrap!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+ }
+ .header .head-inner .logo-link{
+  flex:0 1 290px!important;
+  min-width:0!important;
+  max-width:290px!important;
+  gap:8px!important;
+ }
+ .header .head-inner .logo-link img{
+  width:105px!important;
+  height:52px!important;
+ }
+ .header .head-inner .brand-copy{min-width:0!important}
+ .header .head-inner .brand-copy strong{font-size:1rem!important;letter-spacing:.035em!important}
+ .header .head-inner .brand-copy>span{font-size:.8rem!important;letter-spacing:.06em!important}
+ .header .head-inner .brand-copy small{font-size:.58rem!important;white-space:nowrap!important}
+ .header .head-inner nav{
+  flex:1 1 auto!important;
+  min-width:0!important;
+  display:flex!important;
+  flex-flow:row nowrap!important;
+  justify-content:space-between!important;
+  gap:clamp(5px,.7vw,12px)!important;
+ }
+ .header .head-inner nav a{
+  flex:0 0 auto!important;
+  white-space:nowrap!important;
+  word-break:normal!important;
+  overflow-wrap:normal!important;
+  font-size:clamp(.68rem,.78vw,.84rem)!important;
+ }
+ .header .head-inner nav .nav-cta{padding:11px 12px!important}
+}
+@media screen and (min-width:901px) and (max-width:1100px){
+ .header .head-inner .logo-link{flex-basis:225px!important;max-width:225px!important}
+ .header .head-inner .logo-link img{width:82px!important}
+ .header .head-inner .brand-copy strong{font-size:.88rem!important}
+ .header .head-inner .brand-copy>span{font-size:.7rem!important}
+ .header .head-inner .brand-copy small{font-size:.52rem!important}
+ .header .head-inner nav{gap:4px!important}
+ .header .head-inner nav a{font-size:.65rem!important}
+ .header .head-inner nav .nav-cta{padding:9px 8px!important}
+}
