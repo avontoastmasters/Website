@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const multer = require('multer');
 const sharp = require('sharp');
+const heicConvert = require('heic-convert');
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -396,6 +397,14 @@ app.post('/admin/login', async (req, res) => {
 
 
 const mediaUploadDir = path.join(__dirname, 'public', 'uploads', 'media');
+async function getProcessableImageBuffer(file) {
+  const extension = path.extname(file.originalname || '').toLowerCase();
+  const mimeType = (file.mimetype || '').toLowerCase();
+  const isHeic = ['.heic', '.heif'].includes(extension) || ['image/heic', 'image/heif', 'image/heic-sequence', 'image/heif-sequence'].includes(mimeType);
+  if (!isHeic) return file.buffer;
+  // Decode HEIC first because Sharp's standard prebuilt binaries do not decode HEVC.
+  return Buffer.from(await heicConvert({ buffer: file.buffer, format: 'JPEG', quality: 0.92 }));
+}
 function listMediaFiles() {
   try {
     return fs.readdirSync(mediaUploadDir, { withFileTypes: true })
@@ -429,13 +438,14 @@ app.post('/admin/media/upload', requireAdmin, (req, res, next) => {
   if (!validCsrf(req, res)) return;
   if (!req.file) return res.status(400).send('Please choose an image to upload.');
   try {
-    const metadata = await sharp(req.file.buffer, { limitInputPixels: 40000000 }).metadata();
+    const imageBuffer = await getProcessableImageBuffer(req.file);
+    const metadata = await sharp(imageBuffer, { limitInputPixels: 40000000 }).metadata();
     if (!['jpeg', 'png', 'webp', 'avif'].includes(metadata.format)) {
-      return res.status(400).send('Please upload a JPEG, PNG, WebP or AVIF image.');
+      return res.status(400).send('Please upload a JPEG, PNG, WebP, AVIF or HEIC image.');
     }
     const filename = crypto.randomUUID() + '.webp';
     fs.mkdirSync(mediaUploadDir, { recursive: true, mode: 0o750 });
-    await sharp(req.file.buffer, { limitInputPixels: 40000000 })
+    await sharp(imageBuffer, { limitInputPixels: 40000000 })
       .rotate()
       .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 80, effort: 4 })
@@ -443,7 +453,7 @@ app.post('/admin/media/upload', requireAdmin, (req, res, next) => {
     return res.redirect(303, '/admin/media?uploaded=1');
   } catch (error) {
     console.error('Media image processing failed:', error.message);
-    return res.status(400).send('That image could not be processed. Please try a JPEG, PNG, WebP or AVIF image.');
+    return res.status(400).send('That image could not be processed. Please try a JPEG, PNG, WebP, AVIF or HEIC image.');
   }
 });
 app.post('/admin/media/delete', requireAdmin, (req, res) => {
@@ -470,13 +480,14 @@ app.post('/admin/upload-image', requireAdmin, (req, res, next) => {
   if (!validCsrf(req, res)) return;
   if (!req.file) return res.status(400).send('Please choose an image to upload.');
   try {
-    const metadata = await sharp(req.file.buffer, { limitInputPixels: 40000000 }).metadata();
+    const imageBuffer = await getProcessableImageBuffer(req.file);
+    const metadata = await sharp(imageBuffer, { limitInputPixels: 40000000 }).metadata();
     if (!['jpeg', 'png', 'webp', 'avif'].includes(metadata.format)) {
-      return res.status(400).send('Please upload a JPEG, PNG, WebP or AVIF image.');
+      return res.status(400).send('Please upload a JPEG, PNG, WebP, AVIF or HEIC image.');
     }
     const filename = crypto.randomUUID() + '.webp';
     fs.mkdirSync(mediaUploadDir, { recursive: true, mode: 0o750 });
-    await sharp(req.file.buffer, { limitInputPixels: 40000000 })
+    await sharp(imageBuffer, { limitInputPixels: 40000000 })
       .rotate()
       .resize({ width: 1600, height: 1000, fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 78, effort: 4 })
@@ -485,7 +496,7 @@ app.post('/admin/upload-image', requireAdmin, (req, res, next) => {
     return res.redirect(303, '/admin?image=' + encodeURIComponent(imageUrl));
   } catch (error) {
     console.error('Announcement image processing failed:', error.message);
-    return res.status(400).send('That image could not be processed. Please try a JPEG, PNG, WebP or AVIF image.');
+    return res.status(400).send('That image could not be processed. Please try a JPEG, PNG, WebP, AVIF or HEIC image.');
   }
 });
 app.post('/admin/save', requireAdmin, (req, res) => {
