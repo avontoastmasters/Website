@@ -112,14 +112,17 @@ function writeEvents(items) {
 function eventDateTime(item) {
   return (item.date || '9999-12-31') + 'T' + (item.startTime || '00:00');
 }
+function eventEndDateTime(item) {
+  return (item.date || '9999-12-31') + 'T' + (item.endTime || item.startTime || '23:59');
+}
+function eventHasFinished(item, now = nzDateTime()) {
+  return eventEndDateTime(item) <= now;
+}
 function getPublicEvents() {
   const now = nzDateTime();
-  const items = readEvents().filter(item => item.enabled === true && item.title && item.description && item.date);
-  items.sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b)));
-  return {
-    upcoming: items.filter(item => eventDateTime(item) >= now),
-    past: items.filter(item => eventDateTime(item) < now).sort((a, b) => eventDateTime(b).localeCompare(eventDateTime(a))).slice(0, 6)
-  };
+  return readEvents()
+    .filter(item => item.enabled === true && item.title && item.description && item.date && !eventHasFinished(item, now))
+    .sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b)));
 }
 
 function readAnnouncements() {
@@ -262,7 +265,18 @@ app.get('/robots.txt', (req, res) => {
 });
 
 app.get('/sitemap.xml', (req, res) => {
-  res.type('application/xml').sendFile(path.join(__dirname, 'sitemap.xml'));
+  const sitemapPath = path.join(__dirname, 'sitemap.xml');
+  let xml = fs.readFileSync(sitemapPath, 'utf8');
+  const eventUrls = getPublicEvents().map(item => [
+    '  <url>',
+    '    <loc>' + escapeXml(eventUrl(item)) + '</loc>',
+    '    <lastmod>' + escapeXml((item.updatedAt || new Date().toISOString()).slice(0, 10)) + '</lastmod>',
+    '    <changefreq>weekly</changefreq>',
+    '    <priority>0.6</priority>',
+    '  </url>'
+  ].join('\\n')).join('\\n');
+  if (eventUrls) xml = xml.replace('</urlset>', eventUrls + '\\n</urlset>');
+  res.type('application/xml').send(xml);
 });
 
 app.get(['/health', '/healthz'], (req, res) => {
@@ -679,8 +693,7 @@ app.get('/events.html', (req, res, next) => {
     pageName: 'events',
     currentPage: 'events',
     announcement: getPublicAnnouncement(),
-    events: events.upcoming,
-    pastEvents: events.past
+    events
   }, (err, html) => {
     if (err) return next(err);
     res.type('html').send(html);
