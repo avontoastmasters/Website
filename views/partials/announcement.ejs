@@ -5,6 +5,7 @@
     <div class="site-announcement__copy">
       <strong><%= announcement.title %></strong>
       <span><%= announcement.message %></span>
+      <% if (announcement.imageUrl) { %><img class="site-announcement__image" src="<%= announcement.imageUrl %>" alt="" loading="lazy" decoding="async"><% } %>
     </div>
     <% if (announcement.buttonText && announcement.buttonLink) { %>
       <a class="site-announcement__link" href="<%= announcement.buttonLink %>"<% if (/^https:\/\//i.test(announcement.buttonLink)) { %> target="_blank" rel="noopener noreferrer"<% } %>><%= announcement.buttonText %> <span aria-hidden="true">→</span></a>
