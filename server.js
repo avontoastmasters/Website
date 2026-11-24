@@ -475,13 +475,13 @@ app.post('/admin/upload-image', requireAdmin, (req, res, next) => {
       return res.status(400).send('Please upload a JPEG, PNG, WebP or AVIF image.');
     }
     const filename = crypto.randomUUID() + '.webp';
-    fs.mkdirSync(announcementUploadDir, { recursive: true, mode: 0o750 });
+    fs.mkdirSync(mediaUploadDir, { recursive: true, mode: 0o750 });
     await sharp(req.file.buffer, { limitInputPixels: 40000000 })
       .rotate()
       .resize({ width: 1600, height: 1000, fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 78, effort: 4 })
-      .toFile(path.join(announcementUploadDir, filename));
-    const imageUrl = '/uploads/announcements/' + filename;
+      .toFile(path.join(mediaUploadDir, filename));
+    const imageUrl = '/uploads/media/' + filename;
     return res.redirect(303, '/admin?image=' + encodeURIComponent(imageUrl));
   } catch (error) {
     console.error('Announcement image processing failed:', error.message);
