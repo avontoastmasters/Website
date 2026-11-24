@@ -586,6 +586,9 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
 app.get('/index.html', (req, res) => res.redirect(301, '/'));
 
+// Short, memorable link for visitors to leave an Avon Toastmasters Google review.
+app.get('/review', (req, res) => res.redirect(302, 'https://search.google.com/local/writereview?placeid=ChIJm5X6pmiLMW0R_nscPejQJ5Q'));
+
 const pages = {
   '/': 'index',
   '/about.html': 'about',
