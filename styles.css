@@ -732,3 +732,61 @@ button,input,select,textarea{font-family:"Source Sans 3","Arial",sans-serif}
  .head-inner nav a{font-size:.79rem}
  .head-inner nav .nav-cta{padding:12px 14px}
 }
+
+
+/* Definitive desktop header layout: reserve a single unbroken row for every nav item. */
+@media screen and (min-width:1081px){
+ header.header .head-inner.wrap{
+  width:calc(100% - 64px)!important;
+  max-width:1760px!important;
+  min-height:104px;
+  display:flex!important;
+  flex-flow:row nowrap!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:clamp(16px,2vw,34px)!important;
+ }
+ header.header .head-inner .logo-link{
+  display:flex!important;
+  flex:0 0 auto!important;
+  width:auto!important;
+  max-width:390px!important;
+  min-width:0!important;
+  white-space:nowrap!important;
+ }
+ header.header .head-inner nav#nav{
+  display:flex!important;
+  flex:1 1 auto!important;
+  flex-flow:row nowrap!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  width:auto!important;
+  min-width:0!important;
+  gap:clamp(12px,1.25vw,24px)!important;
+ }
+ header.header .head-inner nav#nav>a{
+  display:inline-flex!important;
+  flex:0 0 auto!important;
+  width:max-content!important;
+  max-width:none!important;
+  white-space:nowrap!important;
+  word-break:keep-all!important;
+  overflow-wrap:normal!important;
+  font-size:clamp(.78rem,.86vw,.94rem)!important;
+  line-height:1.25!important;
+  padding:10px 0!important;
+ }
+ header.header .head-inner nav#nav>a.nav-cta{
+  padding:15px 20px!important;
+ }
+}
+@media screen and (min-width:1081px) and (max-width:1500px){
+ header.header .head-inner.wrap{gap:12px!important;width:calc(100% - 36px)!important}
+ header.header .head-inner .logo-link img{width:112px!important;height:54px!important}
+ header.header .head-inner .brand-copy strong{font-size:1rem!important}
+ header.header .head-inner .brand-copy>span{font-size:.82rem!important}
+ header.header .head-inner .brand-copy small{font-size:.6rem!important}
+ header.header .head-inner nav#nav{gap:9px!important}
+ header.header .head-inner nav#nav>a{font-size:.76rem!important}
+ header.header .head-inner nav#nav>a.nav-cta{padding:12px 13px!important}
+}
