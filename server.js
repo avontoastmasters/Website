@@ -686,7 +686,7 @@ app.post('/admin/save', requireAdmin, (req, res) => {
   if (enabled) {
     const conflict = findAnnouncementConflict(items, item);
     if (conflict) return res.status(409).render('admin/dashboard', {
-      username: req.adminSession.username, csrf: req.adminSession.csrf, announcements: items,
+      username: req.adminSession.username, role: req.adminSession.role, csrf: req.adminSession.csrf, announcements: items,
       editing: item, saved: false, nowNZ: nzDateTime(),
       error: 'Schedule conflict: "' + cleanText(conflict.title, 100) + '" is already scheduled during this time. Change the start or end date/time before saving.'
     });
@@ -716,7 +716,7 @@ app.post('/admin/toggle', requireAdmin, (req, res) => {
 app.post('/admin/delete', requireAdmin, (req, res) => {
   if (!validCsrf(req, res)) return;
   writeAnnouncements(readAnnouncements().filter(entry => entry.id !== req.body.id));
-  res.redirect(303, '/admin?saved=1');
+  res.redirect(303, '/admin/announcements?saved=1');
 });
 app.post('/admin/logout', requireAdmin, (req, res) => {
   if (!validCsrf(req, res)) return;
