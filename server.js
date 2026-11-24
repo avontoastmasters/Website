@@ -7,6 +7,8 @@ const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
+const multer = require('multer');
+const sharp = require('sharp');
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -85,6 +87,12 @@ const announcementFile = path.join(__dirname, 'data', 'announcement.json');
 const ADMIN_COOKIE = 'avon_admin_session';
 const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
 const adminAttempts = new Map();
+const announcementUploadDir = path.join(__dirname, 'public', 'uploads', 'announcements');
+const announcementUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
+function safeAnnouncementImage(value) {
+  const image = cleanText(value, 240);
+  return /^\/uploads\/announcements\/[a-f0-9-]{36}\.webp$/.test(image) ? image : '';
+}
 
 function readAnnouncements() {
   try {
@@ -364,7 +372,7 @@ app.get('/admin', (req, res) => {
   const session = getAdminSession(req);
   if (!session) return res.render('admin/login', { error: '', username: process.env.ADMIN_USERNAME || 'webmaster' });
   const announcements = expireAnnouncements(readAnnouncements());
-  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', nowNZ: nzDateTime(), error: '' });
+  res.render('admin/dashboard', { username: session.username, csrf: session.csrf, announcements, editing: announcements.find(item => item.id === req.query.edit) || null, saved: req.query.saved === '1', uploadedImage: safeAnnouncementImage(req.query.image), nowNZ: nzDateTime(), error: '' });
 });
 app.post('/admin/login', async (req, res) => {
   if (!adminReady()) return res.status(503).send('Webmaster login has not been configured yet.');
@@ -385,6 +393,37 @@ app.post('/admin/login', async (req, res) => {
   setAdminCookie(res, { username: expectedUsername, csrf, expiresAt: Date.now() + ADMIN_SESSION_MS });
   res.redirect(303, '/admin');
 });
+
+app.post('/admin/upload-image', requireAdmin, (req, res, next) => {
+  announcementUpload.single('announcementImage')(req, res, error => {
+    if (error) {
+      if (error.code === 'LIMIT_FILE_SIZE') return res.status(413).send('Image is too large. Please choose an image under 8 MB.');
+      return res.status(400).send('Please choose one valid image file.');
+    }
+    next();
+  });
+}, async (req, res) => {
+  if (!validCsrf(req, res)) return;
+  if (!req.file) return res.status(400).send('Please choose an image to upload.');
+  try {
+    const metadata = await sharp(req.file.buffer, { limitInputPixels: 40000000 }).metadata();
+    if (!['jpeg', 'png', 'webp', 'avif'].includes(metadata.format)) {
+      return res.status(400).send('Please upload a JPEG, PNG, WebP or AVIF image.');
+    }
+    const filename = crypto.randomUUID() + '.webp';
+    fs.mkdirSync(announcementUploadDir, { recursive: true, mode: 0o750 });
+    await sharp(req.file.buffer, { limitInputPixels: 40000000 })
+      .rotate()
+      .resize({ width: 1600, height: 1000, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 78, effort: 4 })
+      .toFile(path.join(announcementUploadDir, filename));
+    const imageUrl = '/uploads/announcements/' + filename;
+    return res.redirect(303, '/admin?image=' + encodeURIComponent(imageUrl));
+  } catch (error) {
+    console.error('Announcement image processing failed:', error.message);
+    return res.status(400).send('That image could not be processed. Please try a JPEG, PNG, WebP or AVIF image.');
+  }
+});
 app.post('/admin/save', requireAdmin, (req, res) => {
   if (!validCsrf(req, res)) return;
   const items = readAnnouncements();
@@ -393,6 +432,7 @@ app.post('/admin/save', requireAdmin, (req, res) => {
   const message = cleanText(req.body.message, 500);
   const buttonText = cleanText(req.body.buttonText, 40);
   const buttonLink = safeAnnouncementLink(req.body.buttonLink);
+  const imageUrl = safeAnnouncementImage(req.body.imageUrl);
   const type = ['general', 'important', 'event', 'urgent'].includes(req.body.type) ? req.body.type : 'general';
   const nowNZ = nzDateTime();
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -421,7 +461,7 @@ app.post('/admin/save', requireAdmin, (req, res) => {
     return res.status(400).send('The end date and time must be after the start date and time.');
   }
   const enabled = req.body.enabled === 'on';
-  const item = { id, enabled, type, title, message, buttonText: buttonLink ? buttonText : '', buttonLink, startDate, startTime, endDate, endTime, updatedAt: new Date().toISOString() };
+  const item = { id, enabled, type, title, message, imageUrl, buttonText: buttonLink ? buttonText : '', buttonLink, startDate, startTime, endDate, endTime, updatedAt: new Date().toISOString() };
   const index = items.findIndex(entry => entry.id === id);
   if (enabled) {
     const conflict = findAnnouncementConflict(items, item);
