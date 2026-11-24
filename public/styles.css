@@ -739,3 +739,38 @@ button,input,select,textarea{font-family:"Source Sans 3","Arial",sans-serif}
  .header .head-inner nav a{font-size:.65rem!important}
  .header .head-inner nav .nav-cta{padding:9px 8px!important}
 }
+
+/* Events page: balanced, more compact hero */
+.events-page .page-hero {
+  padding: 62px 0 66px;
+}
+
+.events-page .page-hero h1 {
+  font-size: clamp(2.8rem, 4.6vw, 4.25rem);
+  line-height: 1.06;
+  max-width: 900px;
+  margin-bottom: 22px;
+}
+
+.events-page .page-hero .lead {
+  max-width: 760px;
+  font-size: 1.12rem;
+  line-height: 1.65;
+  margin-bottom: 0;
+}
+
+@media (max-width: 700px) {
+  .events-page .page-hero {
+    padding: 48px 0 52px;
+  }
+
+  .events-page .page-hero h1 {
+    font-size: clamp(2.35rem, 10vw, 3.2rem);
+    line-height: 1.08;
+  }
+
+  .events-page .page-hero .lead {
+    font-size: 1.02rem;
+  }
+}
+
