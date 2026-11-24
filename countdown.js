@@ -48,7 +48,7 @@
           if (new Date(Date.UTC(year, month - 1, day)).getUTCDay() !== 2) continue;
           tuesdays++;
           if (![1, 2, 4].includes(tuesdays)) continue;
-          const meeting = christchurchTime(year, month, day, 19);
+          const meeting = new Date(christchurchTime(year, month, day, 19).getTime() + 30 * 60 * 1000);
           if (meeting.getTime() > now.getTime()) return meeting;
         }
       }
@@ -64,7 +64,7 @@
         // Use real instants (not rounded minutes) so the countdown resets
         // immediately at 8:30 pm, including when the page has been left open.
         const meetingStart = christchurchTime(today.year, today.month, today.day, 19).getTime() + 30 * 60 * 1000;
-        const meetingEnd = christchurchTime(today.year, today.month, today.day, 20).getTime() + 30 * 60 * 1000;
+        const meetingEnd = christchurchTime(today.year, today.month, today.day, 20).getTime();
         const meetingInProgress = meetingDay &&
           now.getTime() >= meetingStart && now.getTime() < meetingEnd;
 
@@ -112,7 +112,7 @@
     const downloadCalendar = card.querySelector("[data-download-calendar]");
     const toCalendarDate = date => date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
     const eventDetails = () => {
-      const start = new Date(target.getTime() + 30 * 60 * 1000);
+      const start = new Date(target.getTime());
       const end = new Date(start.getTime() + 60 * 60 * 1000);
       const title = "Avon Toastmasters — Club Meeting";
       const location = "St Albans Community Centre, 1049 Colombo Street, Christchurch, New Zealand";
