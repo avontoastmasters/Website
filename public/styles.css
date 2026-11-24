@@ -774,3 +774,23 @@ button,input,select,textarea{font-family:"Source Sans 3","Arial",sans-serif}
   }
 }
 
+
+/* Desktop navbar: compact, readable and consistently spaced */
+@media screen and (min-width:1201px) {
+  .header .head-inner nav {
+    flex: 1 1 auto !important;
+    justify-content: flex-start !important;
+    gap: clamp(18px, 1.25vw, 25px) !important;
+  }
+
+  .header .head-inner nav a {
+    font-size: .9rem !important;
+    white-space: nowrap !important;
+  }
+
+  .header .head-inner nav .nav-cta {
+    margin-left: 8px !important;
+    padding: 12px 17px !important;
+  }
+}
+
