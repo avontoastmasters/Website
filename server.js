@@ -540,6 +540,10 @@ app.post('/admin/forgot-password', async (req, res) => {
   const email = cleanText(req.body.email, 254).toLowerCase();
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+  if (!emailPattern.test(email)) {
+    return renderAdminForgotPassword(res, 400, 'Please enter a valid email address.');
+  }
+
   if (emailPattern.test(email)) {
     const users = readAdminUsers();
     const user = users.find(u =>
@@ -572,7 +576,7 @@ app.post('/admin/forgot-password', async (req, res) => {
             encodeURIComponent(token);
 
           await transporter.sendMail({
-            from: { name: 'Avon Toastmasters Website', address: smtpUser },
+            from: { name: 'Avon Toastmasters Website', address: 'noreply@toastmasters.net.nz' },
             to: user.email,
             subject: 'Reset your Avon Toastmasters website password',
             text: [
