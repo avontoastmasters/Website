@@ -452,7 +452,7 @@ app.use('/admin', (req, res, next) => {
   res.locals.adminSessionMinutes = readAdminSettings().sessionMinutes;
   next();
 });
-app.use('/admin', (req,res,next)=>{const session=getAdminSession(req);if(session){session.expiresAt=Date.now()+readAdminSettings().sessionMinutes*60000;setAdminCookie(res,session);req.adminSession=session}next()});
+app.use('/admin', (req,res,next)=>{const session=getAdminSession(req);if(session){session.expiresAt=Date.now()+readAdminSettings().sessionMinutes*60000;setAdminCookie(res,session);req.adminSession=session;res.locals.adminUserKey=session.userId}next()});
 function safeAdminReturnPath(value) {
   const candidate = typeof value === 'string' ? value : '';
   return (candidate === '/admin' || candidate.startsWith('/admin?') || candidate.startsWith('/admin/')) && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
