@@ -28,7 +28,7 @@
           <% if (event.bookingLink) { %>
             <a class="btn btn-blue" href="<%= event.bookingLink %>" <%= event.bookingLink.startsWith('https://') ? 'target="_blank" rel="noopener noreferrer"' : '' %>>More information / booking ↗</a>
           <% } %>
-          <button class="btn btn-outline" type="button" id="share-event">Share this event ↗</button>
+<% if (Array.isArray(event.eventLinks)) { event.eventLinks.forEach(link => { %><a class="btn btn-outline" href="<%= link.url %>"><%= link.label %> ↗</a><% }) } %>          <button class="btn btn-outline" type="button" id="share-event">Share this event ↗</button>
         </div>
         <div class="event-calendar-actions">
           <p class="event-calendar-label">SAVE THE DATE</p>
