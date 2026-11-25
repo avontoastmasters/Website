@@ -10,6 +10,7 @@ const crypto = require('node:crypto');
 const multer = require('multer');
 const sharp = require('sharp');
 const heicConvert = require('heic-convert');
+const Admin2FA = require('./admin-2fa');
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -95,6 +96,8 @@ async function verifyTurnstile(token, remoteIp) {
 /* Simple Avon webmaster announcement administration. */
 const announcementFile = path.join(__dirname, 'data', 'announcement.json');
 const ADMIN_COOKIE = 'avon_admin_session';
+const ADMIN_PENDING_COOKIE = 'avon_admin_pending';
+const adminPendingNonces = new Map();
 const ADMIN_SESSION_MS = 45 * 60 * 1000;
 const ADMIN_TURNSTILE_SITE_KEY = '0x4AAAAAAGOdEcQMTT3VMD9-';
 const adminAttempts = new Map();
@@ -253,8 +256,133 @@ function getCookie(req, name) {
 }
 function createAdminToken(p){const body=Buffer.from(JSON.stringify(p)).toString('base64url');const sig=crypto.createHmac('sha256',process.env.ADMIN_SESSION_SECRET).update(body).digest('base64url');return body+'.'+sig}
 function getAdminSession(req){const t=getCookie(req,ADMIN_COOKIE),i=t.lastIndexOf('.');if(i<1||!process.env.ADMIN_SESSION_SECRET)return null;const b=t.slice(0,i),s=Buffer.from(t.slice(i+1)),e=Buffer.from(crypto.createHmac('sha256',process.env.ADMIN_SESSION_SECRET).update(b).digest('base64url'));if(s.length!==e.length||!crypto.timingSafeEqual(s,e))return null;try{const p=JSON.parse(Buffer.from(b,'base64url').toString('utf8'));if(!p||p.expiresAt<=Date.now()||!p.userId||!p.csrf)return null;const u=readAdminUsers().find(x=>x.id===p.userId&&x.enabled&&Number(x.sessionVersion||1)===Number(p.sessionVersion));return u?{...p,username:u.username,role:u.role}:null}catch{return null}}
-function setAdminCookie(res,p){const value=ADMIN_COOKIE+'='+createAdminToken(p)+'; HttpOnly; Secure; SameSite=Strict; Max-Age='+(readAdminSettings().sessionMinutes*60);res.setHeader('Set-Cookie',[value+'; Path=/',''+ADMIN_COOKIE+'=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0'])}
-function clearAdminCookie(res){res.setHeader('Set-Cookie',[ADMIN_COOKIE+'=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0',ADMIN_COOKIE+'=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0'])}
+function setAdminCookie(res,p){
+  const value = ADMIN_COOKIE+'='+createAdminToken(p)+
+    '; HttpOnly; Secure; SameSite=Strict; Max-Age='+
+    (readAdminSettings().sessionMinutes*60);
+
+  res.setHeader('Set-Cookie',[
+    value+'; Path=/',
+    ADMIN_COOKIE+'=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
+  ]);
+}
+
+function clearAdminCookie(res){
+  res.setHeader('Set-Cookie',[
+    ADMIN_COOKIE+'=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0',
+    ADMIN_COOKIE+'=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
+  ]);
+}
+
+function createPendingToken(p){
+  const body = Buffer.from(JSON.stringify(p)).toString('base64url');
+  const signature = crypto.createHmac('sha256', process.env.ADMIN_SESSION_SECRET)
+    .update('pending:'+body).digest('base64url');
+  return body+'.'+signature;
+}
+
+function setPendingCookie(res,p){
+  const now = Date.now();
+
+  for (const [key, expiry] of adminPendingNonces) {
+    if (expiry <= now) adminPendingNonces.delete(key);
+  }
+
+  const nonce = crypto.randomBytes(24).toString('hex');
+  const pendingLifetimeMs = 10 * 60 * 1000;
+  const payload = {...p, nonce, expiresAt:now+pendingLifetimeMs};
+
+  adminPendingNonces.set(nonce,payload.expiresAt);
+
+  res.append(
+    'Set-Cookie',
+    ADMIN_PENDING_COOKIE+'='+createPendingToken(payload)+
+    '; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=600'
+  );
+
+  return payload;
+}
+
+function clearPendingCookie(res,p){
+  if(p&&p.nonce) adminPendingNonces.delete(p.nonce);
+
+  res.append(
+    'Set-Cookie',
+    ADMIN_PENDING_COOKIE+'=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
+  );
+}
+
+function getPendingAdminSession(req){
+  const token = getCookie(req,ADMIN_PENDING_COOKIE);
+  const separator = token.lastIndexOf('.');
+
+  if(separator<1||!process.env.ADMIN_SESSION_SECRET) return null;
+
+  const body = token.slice(0,separator);
+  const supplied = Buffer.from(token.slice(separator+1));
+  const expected = Buffer.from(
+    crypto.createHmac('sha256',process.env.ADMIN_SESSION_SECRET)
+      .update('pending:'+body).digest('base64url')
+  );
+
+  if(supplied.length!==expected.length||
+     !crypto.timingSafeEqual(supplied,expected)) return null;
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(body,'base64url').toString('utf8')
+    );
+
+    if(!payload||!payload.userId||!payload.csrf||
+       !payload.nonce||payload.expiresAt<=Date.now()) return null;
+
+    if(adminPendingNonces.get(payload.nonce)!==payload.expiresAt) return null;
+
+    const user = readAdminUsers().find(u =>
+      u.id===payload.userId &&
+      u.enabled &&
+      Number(u.sessionVersion||1)===Number(payload.sessionVersion)
+    );
+
+    return user
+      ? {...payload,username:user.username,role:user.role}
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function promotePendingAdminSession(req,res){
+  const pending = req.adminSession;
+
+  if(!pending||!pending.nonce) {
+    throw new Error('Pending authentication is missing.');
+  }
+
+  const users = readAdminUsers();
+  const user = users.find(u =>
+    u.id===pending.userId &&
+    u.enabled &&
+    Number(u.sessionVersion||1)===Number(pending.sessionVersion)
+  );
+
+  if(!user) throw new Error('The account is no longer available.');
+
+  clearPendingCookie(res,pending);
+
+  const session = {
+    userId:user.id,
+    username:user.username,
+    role:user.role,
+    sessionVersion:Number(user.sessionVersion||1),
+    csrf:pending.csrf,
+    authStage:'verified',
+    expiresAt:Date.now()+readAdminSettings().sessionMinutes*60000
+  };
+
+  setAdminCookie(res,session);
+  return session;
+}
 function adminReady(){ensureInitialAdmin();return Boolean(readAdminUsers().some(x=>x.enabled&&x.role==='administrator')&&process.env.ADMIN_SESSION_SECRET&&process.env.ADMIN_SESSION_SECRET.length>=32)}
 function requireAdmin(req,res,next){const session=req.adminSession||getAdminSession(req);if(!session){let back='/admin';if(req.method==='GET')back=safeAdminReturnPath(req.originalUrl);else{try{const u=new URL(req.get('referer')||'');if(u.host===req.get('host'))back=safeAdminReturnPath(u.pathname+u.search)}catch{}}return res.redirect(303,'/admin?next='+encodeURIComponent(back))}req.adminSession=session;next()}
 function requireAdministrator(req,res,next){requireAdmin(req,res,()=>{if(req.adminSession.role!=='administrator')return res.status(403).send('Administrator access is required for this page.');next()})}
@@ -502,7 +630,89 @@ app.use('/admin', (req, res, next) => {
   res.locals.adminSessionMinutes = readAdminSettings().sessionMinutes;
   next();
 });
-app.use('/admin', (req,res,next)=>{const session=getAdminSession(req);if(session){session.expiresAt=Date.now()+readAdminSettings().sessionMinutes*60000;setAdminCookie(res,session);req.adminSession=session;res.locals.adminUserKey=session.userId;const path=req.originalUrl.split('?')[0];if(readAdminUsers().some(u=>u.id===session.userId&&u.mustChangePassword)&&!['/admin/first-login','/admin/logout'].includes(path))return res.redirect(303,'/admin/first-login')}next()});
+app.use('/admin', (req, res, next) => {
+  const currentPath = req.originalUrl.split('?')[0];
+  let session = getAdminSession(req);
+
+  if (session) {
+    const user = readAdminUsers().find(u => u.id === session.userId);
+
+    if (!user) {
+      clearAdminCookie(res);
+      return res.redirect(303,'/admin');
+    }
+
+    let stage = session.authStage;
+
+    if (user.mustChangePassword) stage = 'first_login';
+    else if (user.twoFactorSecret && stage !== 'verified') stage = 'two_factor';
+    else if (!user.twoFactorSecret && stage !== 'verified') stage = 'setup';
+
+    if (stage !== 'verified') {
+      clearAdminCookie(res);
+      session = setPendingCookie(res,{
+        userId:session.userId,
+        username:user.username,
+        role:user.role,
+        sessionVersion:Number(user.sessionVersion||1),
+        csrf:session.csrf,
+        authStage:stage
+      });
+    } else {
+      session.expiresAt = Date.now()+readAdminSettings().sessionMinutes*60000;
+      setAdminCookie(res,session);
+      req.adminSession = session;
+      res.locals.adminUserKey = session.userId;
+      return next();
+    }
+  }
+
+  if (!session) session = getPendingAdminSession(req);
+
+  if (!session) return next();
+
+  const user = readAdminUsers().find(u =>
+    u.id===session.userId &&
+    u.enabled &&
+    Number(u.sessionVersion||1)===Number(session.sessionVersion)
+  );
+
+  if (!user) {
+    clearPendingCookie(res,session);
+    return res.redirect(303,'/admin');
+  }
+
+  req.adminSession = session;
+  res.locals.adminUserKey = session.userId;
+
+  if (user.mustChangePassword) {
+    if (!['/admin/first-login','/admin/logout'].includes(currentPath)) {
+      return res.redirect(303,'/admin/first-login');
+    }
+    return next();
+  }
+
+  if (session.authStage === 'two_factor') {
+    if (!['/admin/2fa/verify','/admin/logout'].includes(currentPath)) {
+      return res.redirect(303,'/admin/2fa/verify');
+    }
+    return next();
+  }
+
+  if (session.authStage === 'setup') {
+    if (![
+      '/admin/2fa/setup',
+      '/admin/2fa/activate',
+      '/admin/2fa/skip',
+      '/admin/logout'
+    ].includes(currentPath)) {
+      return res.redirect(303,'/admin/2fa/setup');
+    }
+    return next();
+  }
+
+  return res.redirect(303,'/admin');
+});;
 
 function renderAdminForgotPassword(res, status = 200, error = '', sent = false) {
   return res.status(status).render('admin/forgot-password', {
@@ -516,6 +726,8 @@ function findAdminResetUser(token, users) {
   if (typeof token !== 'string' || token.length < 32 || token.length > 200) return null;
   const supplied = crypto.createHash('sha256').update(token).digest();
   for (const user of users) {
+    if (String(user.username || '').toLowerCase() === 'webmaster') continue;
+
     const stored = user.resetTokenHash;
     if (!/^[a-f0-9]{64}$/i.test(String(stored || ''))) continue;
     const expected = Buffer.from(stored, 'hex');
@@ -553,7 +765,9 @@ app.post('/admin/forgot-password', async (req, res) => {
   if (emailPattern.test(email)) {
     const users = readAdminUsers();
     const user = users.find(u =>
-      u.enabled && String(u.email || '').toLowerCase() === email
+      u.enabled &&
+      String(u.username || '').toLowerCase() !== 'webmaster' &&
+      String(u.email || '').toLowerCase() === email
     );
 
     if (user) {
@@ -679,11 +893,424 @@ function safeAdminReturnPath(value) {
   return (candidate === '/admin' || candidate.startsWith('/admin?') || candidate.startsWith('/admin/')) && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
 }
 
+/* ================= ADMIN TWO-FACTOR AUTHENTICATION ================= */
+
+const adminTwoFactorAttempts = new Map();
+
+function allowTwoFactorAttempt(key) {
+  const now = Date.now();
+  const record = adminTwoFactorAttempts.get(key);
+
+  if (!record || now - record.startedAt > 15 * 60 * 1000) {
+    adminTwoFactorAttempts.set(key, { startedAt: now, count: 1 });
+    return true;
+  }
+
+  if (record.count >= 5) return false;
+
+  record.count++;
+  return true;
+}
+
+function twoFactorUser(req) {
+  return readAdminUsers().find(u =>
+    u.id === req.adminSession.userId &&
+    u.enabled &&
+    Number(u.sessionVersion || 1) === Number(req.adminSession.sessionVersion)
+  );
+}
+
+app.get('/admin/2fa/setup', requireAdmin, async (req, res) => {
+  const users = readAdminUsers();
+  const user = users.find(u => u.id === req.adminSession.userId);
+
+  if (!user || user.twoFactorSecret) {
+    return res.redirect(303, '/admin');
+  }
+
+  try {
+    if (
+      !user.twoFactorPendingSecret ||
+      Number(user.twoFactorPendingExpiresAt) < Date.now()
+    ) {
+      const setup = Admin2FA.generateAuthenticator(user.username);
+
+      user.twoFactorPendingSecret = Admin2FA.encryptSecret(setup.secret);
+      user.twoFactorPendingExpiresAt = Date.now() + 10 * 60 * 1000;
+
+      writeAdminUsers(users);
+    }
+
+    const secret = Admin2FA.decryptSecret(user.twoFactorPendingSecret);
+
+    const uri = new (require('otpauth').TOTP)({
+      issuer: 'Avon Toastmasters',
+      label: user.username,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: require('otpauth').Secret.fromHex(secret)
+    }).toString();
+
+    const qrCode = await Admin2FA.createQrCode(uri);
+
+    res.render('admin/2fa-setup', {
+      username: user.username,
+      csrf: req.adminSession.csrf,
+      qrCode,
+      secret,
+      skips: Number(user.twoFactorSetupSkips || 0),
+      canSkip: Number(user.twoFactorSetupSkips || 0) < 3,
+      error: req.query.invalid === '1'
+        ? 'That code was not valid. Please check your authenticator app and try again.'
+        : ''
+    });
+  } catch (error) {
+    console.error('Authenticator setup failed:', error.message);
+    res.status(503).send('Authenticator setup is temporarily unavailable. Please contact the website administrator.');
+  }
+});
+
+app.post('/admin/2fa/activate', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const key = req.adminSession.userId + ':' + ip;
+
+  if (!allowTwoFactorAttempt(key)) {
+    return res.status(429).send('Too many verification attempts. Please wait 15 minutes.');
+  }
+
+  const users = readAdminUsers();
+  const user = users.find(u => u.id === req.adminSession.userId);
+
+  if (
+    !user ||
+    user.twoFactorSecret ||
+    !user.twoFactorPendingSecret ||
+    Number(user.twoFactorPendingExpiresAt) < Date.now()
+  ) {
+    return res.status(400).send('Your authenticator setup has expired. Please start again.');
+  }
+
+  let secret;
+
+  try {
+    secret = Admin2FA.decryptSecret(user.twoFactorPendingSecret);
+  } catch {
+    return res.status(500).send('The authenticator setup could not be verified.');
+  }
+
+  if (!Admin2FA.verifyAuthenticator(secret, req.body.code)) {
+    return res.redirect(303, '/admin/2fa/setup?invalid=1');
+  }
+
+  const recoveryCodes = Admin2FA.generateRecoveryCodes(10);
+
+  user.twoFactorSecret = user.twoFactorPendingSecret;
+  user.twoFactorEnabledAt = new Date().toISOString();
+  user.twoFactorRecoveryHashes = recoveryCodes.map(Admin2FA.hashRecoveryCode);
+
+  // Invalidate every previously issued session for this account.
+  user.sessionVersion = Number(user.sessionVersion || 1) + 1;
+  req.adminSession.sessionVersion = user.sessionVersion;
+
+  delete user.twoFactorPendingSecret;
+  delete user.twoFactorPendingExpiresAt;
+
+  writeAdminUsers(users);
+
+  adminTwoFactorAttempts.delete(key);
+
+  let session;
+
+  if (req.adminSession.nonce) {
+    // Initial login: promote the pending session only after successful setup.
+    session = promotePendingAdminSession(req, res);
+  } else {
+    // My Account setup: refresh the existing authenticated session after
+    // incrementing the account's session version.
+    session = {
+      ...req.adminSession,
+      sessionVersion: Number(user.sessionVersion),
+      authStage: 'verified',
+      expiresAt: Date.now() + readAdminSettings().sessionMinutes * 60000
+    };
+
+    setAdminCookie(res, session);
+  }
+
+  res.render('admin/2fa-recovery', {
+    username: user.username,
+    csrf: session.csrf,
+    recoveryCodes
+  });
+});
+
+app.post('/admin/2fa/skip', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+
+  const users = readAdminUsers();
+  const user = users.find(u => u.id === req.adminSession.userId);
+
+  if (!user || user.twoFactorSecret) {
+    return res.redirect(303, '/admin');
+  }
+
+  const skips = Number(user.twoFactorSetupSkips || 0);
+
+  if (skips >= 3) {
+    return res.status(403).send('Authenticator setup is now compulsory. Please complete setup before continuing.');
+  }
+
+  user.twoFactorSetupSkips = skips + 1;
+  user.twoFactorLastSkippedAt = new Date().toISOString();
+
+  writeAdminUsers(users);
+
+  promotePendingAdminSession(req,res);
+
+  res.redirect(303, '/admin');
+});
+
+app.get('/admin/2fa/verify', requireAdmin, (req, res) => {
+  if (!req.adminSession.nonce || req.adminSession.authStage !== 'two_factor') {
+    return res.redirect(303, '/admin');
+  }
+
+  const user = twoFactorUser(req);
+
+  if (!user || !user.twoFactorSecret) {
+    return res.redirect(303, '/admin/2fa/setup');
+  }
+
+  res.render('admin/2fa-verify', {
+    username: user.username,
+    csrf: req.adminSession.csrf,
+    error: ''
+  });
+});
+
+app.post('/admin/2fa/verify', requireAdmin, (req, res) => {
+  if (!validCsrf(req, res)) return;
+
+  if (!req.adminSession.nonce || req.adminSession.authStage !== 'two_factor') {
+    return res.status(403).send('A pending two-factor sign-in is required.');
+  }
+
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const key = req.adminSession.userId + ':' + ip;
+
+  if (!allowTwoFactorAttempt(key)) {
+    return res.status(429).send('Too many verification attempts. Please wait 15 minutes.');
+  }
+
+  const users = readAdminUsers();
+  const user = users.find(u => u.id === req.adminSession.userId);
+
+  if (!user || !user.twoFactorSecret) {
+    return res.redirect(303, '/admin/2fa/setup');
+  }
+
+  let verified = false;
+
+  try {
+    const secret = Admin2FA.decryptSecret(user.twoFactorSecret);
+    verified = Admin2FA.verifyAuthenticator(secret, req.body.code);
+  } catch (error) {
+    console.error('Authenticator verification error:', error.message);
+  }
+
+  if (!verified && typeof req.body.recoveryCode === 'string' && req.body.recoveryCode.trim()) {
+    const hashes = Array.isArray(user.twoFactorRecoveryHashes)
+      ? user.twoFactorRecoveryHashes
+      : [];
+
+    const index = Admin2FA.verifyRecoveryCode(req.body.recoveryCode, hashes);
+
+    if (index >= 0) {
+      hashes.splice(index, 1);
+      user.twoFactorRecoveryHashes = hashes;
+      writeAdminUsers(users);
+      verified = true;
+    }
+  }
+
+  if (!verified) {
+    return res.status(401).render('admin/2fa-verify', {
+      username: user.username,
+      csrf: req.adminSession.csrf,
+      error: 'The authenticator code or recovery code was incorrect.'
+    });
+  }
+
+  adminTwoFactorAttempts.delete(key);
+
+  promotePendingAdminSession(req,res);
+
+  res.redirect(303, '/admin');
+});
+
+/* ================= END TWO-FACTOR AUTHENTICATION ================= */
+
 app.get('/admin',(req,res)=>{if(!adminReady())return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');const u=req.adminSession||getAdminSession(req);if(!u)return res.render('admin/login',{error:'',next:safeAdminReturnPath(req.query.next),turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||'',resetSuccess:req.query.reset==='1'});res.render('admin/dashboard-home',{username:u.username,role:u.role,csrf:u.csrf,announcementCount:expireAnnouncements(readAnnouncements()).length,eventCount:readEvents().length,mediaCount:listMediaFiles().length,userCount:u.role==='administrator'?readAdminUsers().length:null,maintenanceStatus:maintenanceStatus()})});
 app.get('/admin/announcements',requireAdmin,(req,res)=>{const u=req.adminSession,announcements=expireAnnouncements(readAnnouncements());res.render('admin/dashboard',{username:u.username,role:u.role,csrf:u.csrf,announcements,editing:announcements.find(x=>x.id===req.query.edit)||null,saved:req.query.saved==='1',uploadedImage:safeAnnouncementImage(req.query.image),nowNZ:nzDateTime(),error:''})});
 
-app.get('/admin/account',requireAdmin,(req,res)=>res.render('admin/account',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,saved:req.query.saved==='1',error:''}));
-app.post('/admin/account/password',requireAdmin,async(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.adminSession.userId),cur=typeof req.body.currentPassword==='string'?req.body.currentPassword:'',pw=typeof req.body.newPassword==='string'?req.body.newPassword:'',confirm=typeof req.body.confirmPassword==='string'?req.body.confirmPassword:'';const fail=error=>res.status(400).render('admin/account',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,saved:false,error});if(!u||!await verifyPasswordHash(cur,u.passwordHash))return fail('Your current password was incorrect.');if(pw.length<12)return fail('Your new password must be at least 12 characters long.');if(pw!==confirm)return fail('The new passwords do not match.');u.passwordHash=await hashAdminPassword(pw);u.sessionVersion=Number(u.sessionVersion||1)+1;u.updatedAt=new Date().toISOString();writeAdminUsers(users);clearAdminCookie(res);res.redirect(303,'/admin')});
+function renderAdminAccount(req, res, error = '', status = 200) {
+  const user = readAdminUsers().find(x => x.id === req.adminSession.userId);
+  if (!user) return res.redirect(303, '/admin');
+
+  res.status(status).render('admin/account', {
+    username: user.username,
+    role: user.role,
+    csrf: req.adminSession.csrf,
+    saved: req.query.saved || '',
+    error,
+    twoFactorEnabled: Boolean(user.twoFactorSecret),
+    recoveryCount: Array.isArray(user.twoFactorRecoveryHashes)
+      ? user.twoFactorRecoveryHashes.length
+      : 0
+  });
+}
+
+async function verifyAccountTwoFactor(req, user, key) {
+  if (!allowTwoFactorAttempt(key)) {
+    return { ok: false, status: 429, error: 'Too many security verification attempts. Please wait 15 minutes.' };
+  }
+
+  const password = typeof req.body.currentPassword === 'string'
+    ? req.body.currentPassword
+    : '';
+
+  let passwordValid = false;
+  try {
+    passwordValid = await verifyPasswordHash(password, user.passwordHash);
+  } catch {}
+
+  if (!passwordValid) {
+    return { ok: false, status: 401, error: 'Your current password was incorrect.' };
+  }
+
+  let verified = false;
+
+  const code = typeof req.body.authenticatorCode === 'string'
+    ? req.body.authenticatorCode
+    : '';
+
+  if (code) {
+    try {
+      const secret = Admin2FA.decryptSecret(user.twoFactorSecret);
+      verified = Admin2FA.verifyAuthenticator(secret, code);
+    } catch (error) {
+      console.error('Account 2FA verification error:', error.message);
+    }
+  }
+
+  // A recovery code may be used instead of an authenticator code.
+  if (!verified) {
+    const recoveryCode = typeof req.body.recoveryCode === 'string'
+      ? req.body.recoveryCode
+      : '';
+
+    if (recoveryCode.trim()) {
+      const hashes = Array.isArray(user.twoFactorRecoveryHashes)
+        ? user.twoFactorRecoveryHashes
+        : [];
+
+      const index = Admin2FA.verifyRecoveryCode(recoveryCode, hashes);
+
+      if (index >= 0) {
+        hashes.splice(index, 1);
+        user.twoFactorRecoveryHashes = hashes;
+        verified = true;
+      }
+    }
+  }
+
+  if (!verified) {
+    return { ok: false, status: 401, error: 'The authenticator code or recovery code was incorrect.' };
+  }
+
+  adminTwoFactorAttempts.delete(key);
+  return { ok: true };
+}
+
+app.get('/admin/account', requireAdmin, (req, res) => {
+  renderAdminAccount(req, res);
+});
+
+app.post('/admin/account/2fa/recovery', requireAdmin, async (req, res) => {
+  if (!validCsrf(req, res)) return;
+
+  const users = readAdminUsers();
+  const user = users.find(x => x.id === req.adminSession.userId);
+
+  if (!user || !user.twoFactorSecret) {
+    return res.status(400).send('Authenticator two-factor authentication is not enabled.');
+  }
+
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const key = 'account:' + user.id + ':' + ip;
+  const result = await verifyAccountTwoFactor(req, user, key);
+
+  if (!result.ok) {
+    return renderAdminAccount(req, res, result.error, result.status);
+  }
+
+  const recoveryCodes = Admin2FA.generateRecoveryCodes(10);
+  user.twoFactorRecoveryHashes = recoveryCodes.map(Admin2FA.hashRecoveryCode);
+  user.updatedAt = new Date().toISOString();
+
+  writeAdminUsers(users);
+
+  return res.render('admin/2fa-recovery', {
+    username: user.username,
+    csrf: req.adminSession.csrf,
+    recoveryCodes
+  });
+});
+
+app.post('/admin/account/2fa/disable', requireAdmin, async (req, res) => {
+  if (!validCsrf(req, res)) return;
+
+  const users = readAdminUsers();
+  const user = users.find(x => x.id === req.adminSession.userId);
+
+  if (!user || !user.twoFactorSecret) {
+    return res.status(400).send('Authenticator two-factor authentication is not enabled.');
+  }
+
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const key = 'account:' + user.id + ':' + ip;
+  const result = await verifyAccountTwoFactor(req, user, key);
+
+  if (!result.ok) {
+    return renderAdminAccount(req, res, result.error, result.status);
+  }
+
+  delete user.twoFactorSecret;
+  delete user.twoFactorEnabledAt;
+  delete user.twoFactorRecoveryHashes;
+  delete user.twoFactorPendingSecret;
+  delete user.twoFactorPendingExpiresAt;
+
+  // Require fresh authenticator enrolment at the next login.
+  // Three skips means setup cannot be postponed.
+  user.twoFactorSetupSkips = 3;
+  user.twoFactorLastSkippedAt = new Date().toISOString();
+
+  // Invalidate every previously issued session for this account.
+  user.sessionVersion = Number(user.sessionVersion || 1) + 1;
+  user.updatedAt = new Date().toISOString();
+
+  writeAdminUsers(users);
+
+  clearAdminCookie(res);
+  clearPendingCookie(res, getPendingAdminSession(req));
+
+  return res.redirect(303, '/admin');
+});
+app.post('/admin/account/password',requireAdmin,async(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.adminSession.userId),cur=typeof req.body.currentPassword==='string'?req.body.currentPassword:'',pw=typeof req.body.newPassword==='string'?req.body.newPassword:'',confirm=typeof req.body.confirmPassword==='string'?req.body.confirmPassword:'';const fail=error=>renderAdminAccount(req,res,error,400);if(!u||!await verifyPasswordHash(cur,u.passwordHash))return fail('Your current password was incorrect.');if(pw.length<12)return fail('Your new password must be at least 12 characters long.');if(pw!==confirm)return fail('The new passwords do not match.');u.passwordHash=await hashAdminPassword(pw);u.sessionVersion=Number(u.sessionVersion||1)+1;u.updatedAt=new Date().toISOString();writeAdminUsers(users);clearAdminCookie(res);res.redirect(303,'/admin')});
 app.get('/admin/users',requireAdministrator,(req,res)=>res.render('admin/users',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,users:readAdminUsers().sort((a,b)=>a.createdAt.localeCompare(b.createdAt)),error:'',saved:req.query.saved==='1'}));
 app.post('/admin/users/create',requireAdministrator,async(req,res)=>{if(!validCsrf(req,res))return;const username=cleanText(req.body.username,40),email=cleanText(req.body.email,254).toLowerCase(),password=typeof req.body.password==='string'?req.body.password:'',role=req.body.role==='administrator'?'administrator':'editor',users=readAdminUsers(),fail=error=>res.status(400).render('admin/users',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,users,error,saved:false});if(!/^[a-zA-Z0-9._-]{3,40}$/.test(username))return fail('Usernames must be 3–40 characters and use letters, numbers, dots, underscores or hyphens.');if(users.some(x=>x.username.toLowerCase()===username.toLowerCase()))return fail('That username is already in use.');if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return fail('Enter a valid email address or leave the field blank.');if(email&&users.some(x=>String(x.email||'').toLowerCase()===email))return fail('That email address is already in use.');if(password.length<12)return fail('Passwords must be at least 12 characters long.');users.push({id:crypto.randomUUID(),username,email,passwordHash:await hashAdminPassword(password),role,enabled:true,mustChangePassword:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),sessionVersion:1});writeAdminUsers(users);res.redirect(303,'/admin/users?saved=1')});
 app.post('/admin/users/update',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.body.id);if(!u)return res.status(404).send('Account not found.');if(String(u.username||'').toLowerCase()==='webmaster')return res.status(403).send('The protected webmaster account cannot be changed here.');const role=req.body.role==='administrator'?'administrator':'editor',enabled=req.body.enabled==='on';if(u.id===req.adminSession.userId&&(!enabled||role!=='administrator'))return res.status(400).send('You cannot disable or demote your own administrator account.');if(u.role==='administrator'&&u.enabled&&(!enabled||role!=='administrator')&&users.filter(x=>x.role==='administrator'&&x.enabled).length<=1)return res.status(400).send('The last active administrator cannot be disabled or demoted.');u.role=role;u.enabled=enabled;u.sessionVersion=Number(u.sessionVersion||1)+1;u.updatedAt=new Date().toISOString();writeAdminUsers(users);res.redirect(303,'/admin/users?saved=1')});
@@ -799,10 +1426,74 @@ app.post('/admin/first-login',async(req,res)=>{
 
   writeAdminUsers(users);
   clearAdminCookie(res);
+  clearPendingCookie(res,session);
   res.redirect(303,'/admin');
 });
 
-app.post('/admin/login',async(req,res)=>{if(!adminReady())return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');const ip=req.ip||req.socket.remoteAddress||'unknown',next=safeAdminReturnPath(req.body.next),render=(status,error)=>res.status(status).render('admin/login',{error,next,turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||''});if(!limitAdminLogin(ip))return render(429,'Too many sign-in attempts. Please wait 15 minutes and try again.');if(!await verifyAdminTurnstile(cleanText(req.body['cf-turnstile-response'],4096),ip))return render(400,'Please complete the security check and try again.');const username=cleanText(req.body.username,254),password=typeof req.body.password==='string'?req.body.password:'',user=readAdminUsers().find(x=>x.enabled&&(x.username.toLowerCase()===username.toLowerCase()||(x.email&&x.email.toLowerCase()===username.toLowerCase())));let ok=false;try{ok=Boolean(user&&await verifyPasswordHash(password,user.passwordHash))}catch(e){console.error('Admin password verification failed:',e.message)}if(!user||!ok)return render(401,'The username or password was incorrect.');adminAttempts.delete(ip);const csrf=crypto.randomBytes(24).toString('hex'),minutes=readAdminSettings().sessionMinutes;setAdminCookie(res,{userId:user.id,username:user.username,role:user.role,sessionVersion:Number(user.sessionVersion||1),csrf,expiresAt:Date.now()+minutes*60000});res.redirect(303,user.mustChangePassword?'/admin/first-login':next)});
+app.post('/admin/login', async (req, res) => {
+  if (!adminReady()) {
+    return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');
+  }
+
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const next = safeAdminReturnPath(req.body.next);
+  const render = (status,error) => res.status(status).render('admin/login',{
+    error,next,turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||''
+  });
+
+  if (!limitAdminLogin(ip)) {
+    return render(429,'Too many sign-in attempts. Please wait 15 minutes and try again.');
+  }
+
+  if (!await verifyAdminTurnstile(cleanText(req.body['cf-turnstile-response'],4096),ip)) {
+    return render(400,'Please complete the security check and try again.');
+  }
+
+  const username = cleanText(req.body.username,254);
+  const password = typeof req.body.password==='string'?req.body.password:'';
+
+  const user = readAdminUsers().find(x =>
+    x.enabled &&
+    (
+      x.username.toLowerCase()===username.toLowerCase() ||
+      (x.email&&x.email.toLowerCase()===username.toLowerCase())
+    )
+  );
+
+  let ok = false;
+  try {
+    ok = Boolean(user&&await verifyPasswordHash(password,user.passwordHash));
+  } catch(error) {
+    console.error('Admin password verification failed:',error.message);
+  }
+
+  if (!user||!ok) return render(401,'The username or password was incorrect.');
+
+  adminAttempts.delete(ip);
+
+  const authStage = user.mustChangePassword
+    ? 'first_login'
+    : user.twoFactorSecret ? 'two_factor' : 'setup';
+
+  const csrf = crypto.randomBytes(24).toString('hex');
+
+  clearAdminCookie(res);
+  clearPendingCookie(res,getPendingAdminSession(req));
+  setPendingCookie(res,{
+    userId:user.id,
+    username:user.username,
+    role:user.role,
+    sessionVersion:Number(user.sessionVersion||1),
+    csrf,
+    authStage,
+    next
+  });
+
+  if (authStage==='first_login') return res.redirect(303,'/admin/first-login');
+  if (authStage==='two_factor') return res.redirect(303,'/admin/2fa/verify');
+
+  res.redirect(303,'/admin/2fa/setup');
+});;
 
 
 
@@ -987,6 +1678,7 @@ app.post('/admin/delete', requireAdmin, (req, res) => {
 app.post('/admin/logout', requireAdmin, (req, res) => {
   if (!validCsrf(req, res)) return;
   clearAdminCookie(res);
+  clearPendingCookie(res,req.adminSession);
   res.redirect(303, '/admin');
 });
 
@@ -1001,7 +1693,13 @@ app.use((req,res,next)=>{
   if(!isMaintenanceActive())return next();
   if(req.path==='/health'||req.path==='/healthz'||req.path==='/admin'||req.path.startsWith('/admin/'))return next();
   const session=getAdminSession(req);
-  const eligibleAdmin=session&&readAdminUsers().find(user=>user.id===session.userId&&user.enabled&&!user.mustChangePassword);
+  const eligibleAdmin=session&&session.authStage==='verified'&&
+    readAdminUsers().find(user=>
+      user.id===session.userId &&
+      user.enabled &&
+      user.role==='administrator' &&
+      !user.mustChangePassword
+    );
   if(eligibleAdmin){res.locals.maintenancePreview=true;return next();}
   const maintenance=readAdminSettings().maintenance;
   res.set('Retry-After','3600').set('X-Robots-Tag','noindex, nofollow').set('Cache-Control','no-store');

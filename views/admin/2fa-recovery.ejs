@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Save recovery codes | Avon Toastmasters</title>
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body class="admin-body">
+<main class="admin-shell admin-shell--login">
+<section class="admin-card">
+<p class="admin-eyebrow">IMPORTANT — SAVE THESE CODES</p>
+<h1>Save your recovery codes</h1>
+<p>Your recovery codes are ready. Save them somewhere secure. Each code can only be used once.</p>
+<div style="padding:18px;background:#f2f5f6;border:1px solid #bdcbd0;border-radius:6px">
+<% recoveryCodes.forEach(code => { %>
+<p style="font-family:monospace;font-size:1.05rem;margin:7px 0"><strong><%= code %></strong></p>
+<% }) %>
+</div>
+<p class="admin-alert admin-alert--error">These codes will not be shown again. Store them securely before continuing.</p>
+<a class="admin-button" href="/admin">Continue to dashboard →</a>
+</section>
+</main>
+</body>
+</html>
