@@ -43,24 +43,18 @@
 @media(max-width:640px){.site-announcement__image{width:100%;max-height:220px}}
 
 
-/* Keep the announcement below the complete responsive header.
-   The header must also stay above the banner so the hamburger and its
-   expanded navigation remain clickable when an announcement is visible. */
-.header:has(+ .site-announcement){
-  position:sticky;
-  top:0;
-  z-index:100001;
+
+/* The announcement script inserts a spacer between the header and banner,
+   so keep the header above the banner without relying on adjacent siblings. */
+.header{
+  position:sticky!important;
+  top:0!important;
+  z-index:100001!important;
 }
 .site-announcement{
-  --announcement-top:104px;
-  top:104px!important;
+  top:var(--announcement-top,82px)!important;
+  z-index:100000!important;
 }
 .site-announcement.is-fixed{
-  top:var(--announcement-top,104px)!important;
-}
-@media(max-width:1080px){
-  .site-announcement{--announcement-top:82px;top:82px!important}
-}
-@media(max-width:600px){
-  .site-announcement{--announcement-top:78px;top:78px!important}
+  top:var(--announcement-top,82px)!important;
 }
