@@ -62,6 +62,7 @@
 <% if (announcement) { %><link rel="stylesheet" href="/announcement.css?v=20261125-navfix"><% } %>
 </head>
 <body>
+<% if (typeof maintenancePreview !== 'undefined' && maintenancePreview) { %><div role="status" aria-live="polite" style="position:relative;z-index:1000000;padding:10px 16px;background:#fff4cf;border-bottom:2px solid #d5ad31;color:#493b0b;text-align:center;font:700 14px/1.45 Arial,sans-serif">MAINTENANCE MODE ACTIVE — Public visitors see the maintenance page. You are viewing the live website. <a href="/admin/maintenance" style="color:#004165;font-weight:800">Manage maintenance</a></div><% } %>
 <%- include('partials/header', { currentPage }) %>
 <%- include('partials/announcement', { announcement }) %>
 <%- include('pages/' + pageName) %>
