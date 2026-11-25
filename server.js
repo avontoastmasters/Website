@@ -1332,7 +1332,7 @@ app.get('/admin/events', requireAdmin, (req, res) => {
     role: req.adminSession.role,
     csrf: req.adminSession.csrf,
     events,
-    editing: events.find(item => item.id === req.query.edit) || null,
+    editing: events.find(item => String(item.id || '') === String(req.query.edit || '') || String(item.slug || '') === String(req.query.edit || '') || eventSlug(item) === String(req.query.edit || '')) || null,
     saved: req.query.saved === '1',
     error: ''
   });
