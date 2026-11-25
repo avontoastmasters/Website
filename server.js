@@ -1352,6 +1352,17 @@ app.post('/admin/events/save', requireAdmin, (req, res) => {
   const endTime = cleanText(req.body.endTime, 5);
   const location = cleanText(req.body.location, 180);
   const bookingLink = safeAnnouncementLink(req.body.bookingLink);
+  const eventLinks = [];
+  const rawEventLinks = cleanMultilineText(req.body.eventLinks, 5000);
+  for (const line of rawEventLinks.split(/\r?\n/).map(value => value.trim()).filter(Boolean)) {
+    const separator = line.indexOf('|');
+    if (separator < 1) return res.status(400).send('Enter each event link as Label | https://example.com.');
+    const label = cleanText(line.slice(0, separator), 80);
+    const url = safeAnnouncementLink(line.slice(separator + 1).trim());
+    if (!label || !url) return res.status(400).send('Each event link needs a label and a valid secure https:// URL or local page path.');
+    eventLinks.push({ label, url });
+    if (eventLinks.length > 8) return res.status(400).send('You can add up to 8 additional event links.');
+  }
   const imageUrl = safeAnnouncementImage(req.body.imageUrl);
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
@@ -1363,7 +1374,8 @@ app.post('/admin/events/save', requireAdmin, (req, res) => {
   if (endTime && endTime <= startTime) return res.status(400).send('The event end time must be later than its start time.');
   if (!location) return res.status(400).send('Please enter an event location.');
   if (bookingLink === null) return res.status(400).send('Use a local page path or a secure https:// booking link.');
-  const item = { id, slug, enabled: req.body.enabled === 'on', title, description, category, date, startTime, endTime, location, bookingLink, imageUrl, updatedAt: new Date().toISOString() };
+  if (eventLinks.some(link => link.url === bookingLink)) return res.status(400).send('The booking link is already included in the additional event links.');
+  const item = { id, slug, enabled: req.body.enabled === 'on', title, description, category, date, startTime, endTime, location, bookingLink, eventLinks, imageUrl, updatedAt: new Date().toISOString() };
   const index = items.findIndex(entry => entry.id === id);
   if (index >= 0) items[index] = item; else items.unshift(item);
   writeEvents(items);
