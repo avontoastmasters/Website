@@ -3,6 +3,7 @@
     const banner = document.querySelector('.site-announcement[data-announcement]');
     if (!banner || banner.dataset.fixedReady === '1') return;
     banner.dataset.fixedReady = '1';
+    const header = document.querySelector('.header');
     const id = banner.dataset.announcementId || 'default';
     const key = 'avon-announcement-dismissed:' + id;
     try {
@@ -15,11 +16,19 @@
     const spacer = document.createElement('div');
     spacer.className = 'site-announcement-spacer';
     banner.parentNode.insertBefore(spacer, banner);
-    const update = () => { spacer.style.height = banner.hidden ? '0px' : banner.offsetHeight + 'px'; };
+    const update = () => {
+      const headerHeight = header ? Math.ceil(header.getBoundingClientRect().height) : 82;
+      banner.style.setProperty('--announcement-top', headerHeight + 'px');
+      spacer.style.height = banner.hidden ? '0px' : banner.offsetHeight + 'px';
+    };
     banner.style.display = 'block';
     update();
     window.addEventListener('resize', update, {passive:true});
-    if ('ResizeObserver' in window) new ResizeObserver(update).observe(banner);
+    if ('ResizeObserver' in window) {
+      const observer = new ResizeObserver(update);
+      observer.observe(banner);
+      if (header) observer.observe(header);
+    }
     const dismiss = banner.querySelector('.site-announcement__dismiss');
     if (dismiss) dismiss.addEventListener('click', () => {
       try { sessionStorage.setItem(key, '1'); } catch (_) {}
