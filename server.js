@@ -102,7 +102,10 @@ const adminAttempts = new Map();
 const adminUsersFile=path.join(__dirname,'data','admin-users.json'),adminSettingsFile=path.join(__dirname,'data','admin-settings.json');
 function readAdminUsers(){try{const v=JSON.parse(fs.readFileSync(adminUsersFile,'utf8'));return Array.isArray(v)?v:[]}catch{return[]}}
 function writeAdminUsers(users){fs.mkdirSync(path.dirname(adminUsersFile),{recursive:true,mode:0o750});const t=adminUsersFile+'.tmp';fs.writeFileSync(t,JSON.stringify(users,null,2)+'\n',{mode:0o600});fs.renameSync(t,adminUsersFile)}
-function readAdminSettings(){try{const v=JSON.parse(fs.readFileSync(adminSettingsFile,'utf8'));return{sessionMinutes:[30,45,60].includes(Number(v.sessionMinutes))?Number(v.sessionMinutes):45}}catch{return{sessionMinutes:45}}}
+function readAdminSettings(){const defaults={sessionMinutes:45,maintenance:{enabled:false,title:'We’ll be back shortly',message:'We’re carrying out scheduled maintenance to improve the Avon Toastmasters website. Please check back soon.',startAt:'',endAt:''}};try{const v=JSON.parse(fs.readFileSync(adminSettingsFile,'utf8'));const m=v.maintenance&&typeof v.maintenance==='object'?v.maintenance:{};return{...defaults,...v,sessionMinutes:[30,45,60].includes(Number(v.sessionMinutes))?Number(v.sessionMinutes):45,maintenance:{...defaults.maintenance,...m,enabled:m.enabled===true,title:cleanText(m.title,100)||defaults.maintenance.title,message:cleanMultilineText(m.message,1000)||defaults.maintenance.message,startAt:typeof m.startAt==='string'?m.startAt:'',endAt:typeof m.endAt==='string'?m.endAt:''}}}catch{return defaults}}
+function maintenanceStatus(){const m=readAdminSettings().maintenance,now=Date.now();if(!m.enabled)return 'disabled';if(m.startAt&&Date.parse(m.startAt)>now)return 'scheduled';if(m.endAt&&Date.parse(m.endAt)<=now)return 'ended';return 'active'}
+function isMaintenanceActive(){return maintenanceStatus()==='active'}
+function formatNZDateTimeInput(value){if(!value)return '';const date=new Date(value);if(Number.isNaN(date.getTime()))return '';const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Pacific/Auckland',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date);const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));return p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute}
 function writeAdminSettings(v){fs.mkdirSync(path.dirname(adminSettingsFile),{recursive:true,mode:0o750});const t=adminSettingsFile+'.tmp';fs.writeFileSync(t,JSON.stringify(v,null,2)+'\n',{mode:0o600});fs.renameSync(t,adminSettingsFile)}
 function hashAdminPassword(p){return new Promise((resolve,reject)=>{const salt=crypto.randomBytes(24);crypto.scrypt(p,salt,64,(e,d)=>e?reject(e):resolve('scrypt$'+salt.toString('hex')+'$'+d.toString('hex')))})}
 function verifyPasswordHash(p,h){const a=String(h||'').split('$');if(a.length!==3||a[0]!=='scrypt'||!/^[a-f0-9]{32,}$/.test(a[1])||!/^[a-f0-9]{128}$/.test(a[2]))return Promise.resolve(false);return new Promise((resolve,reject)=>crypto.scrypt(p,Buffer.from(a[1],'hex'),64,(e,d)=>{if(e)return reject(e);const x=Buffer.from(a[2],'hex');resolve(d.length===x.length&&crypto.timingSafeEqual(d,x))}))}
@@ -250,8 +253,8 @@ function getCookie(req, name) {
 }
 function createAdminToken(p){const body=Buffer.from(JSON.stringify(p)).toString('base64url');const sig=crypto.createHmac('sha256',process.env.ADMIN_SESSION_SECRET).update(body).digest('base64url');return body+'.'+sig}
 function getAdminSession(req){const t=getCookie(req,ADMIN_COOKIE),i=t.lastIndexOf('.');if(i<1||!process.env.ADMIN_SESSION_SECRET)return null;const b=t.slice(0,i),s=Buffer.from(t.slice(i+1)),e=Buffer.from(crypto.createHmac('sha256',process.env.ADMIN_SESSION_SECRET).update(b).digest('base64url'));if(s.length!==e.length||!crypto.timingSafeEqual(s,e))return null;try{const p=JSON.parse(Buffer.from(b,'base64url').toString('utf8'));if(!p||p.expiresAt<=Date.now()||!p.userId||!p.csrf)return null;const u=readAdminUsers().find(x=>x.id===p.userId&&x.enabled&&Number(x.sessionVersion||1)===Number(p.sessionVersion));return u?{...p,username:u.username,role:u.role}:null}catch{return null}}
-function setAdminCookie(res,p){res.setHeader('Set-Cookie',ADMIN_COOKIE+'='+createAdminToken(p)+'; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age='+(readAdminSettings().sessionMinutes*60))}
-function clearAdminCookie(res){res.setHeader('Set-Cookie',ADMIN_COOKIE+'=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0')}
+function setAdminCookie(res,p){res.setHeader('Set-Cookie',ADMIN_COOKIE+'='+createAdminToken(p)+'; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age='+(readAdminSettings().sessionMinutes*60))}
+function clearAdminCookie(res){res.setHeader('Set-Cookie',ADMIN_COOKIE+'=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0')}
 function adminReady(){ensureInitialAdmin();return Boolean(readAdminUsers().some(x=>x.enabled&&x.role==='administrator')&&process.env.ADMIN_SESSION_SECRET&&process.env.ADMIN_SESSION_SECRET.length>=32)}
 function requireAdmin(req,res,next){const session=req.adminSession||getAdminSession(req);if(!session){let back='/admin';if(req.method==='GET')back=safeAdminReturnPath(req.originalUrl);else{try{const u=new URL(req.get('referer')||'');if(u.host===req.get('host'))back=safeAdminReturnPath(u.pathname+u.search)}catch{}}return res.redirect(303,'/admin?next='+encodeURIComponent(back))}req.adminSession=session;next()}
 function requireAdministrator(req,res,next){requireAdmin(req,res,()=>{if(req.adminSession.role!=='administrator')return res.status(403).send('Administrator access is required for this page.');next()})}
@@ -330,10 +333,12 @@ function limitAdminLogin(ip) {
 }
 
 app.get('/robots.txt', (req, res) => {
+  if (isMaintenanceActive()) return res.set('Retry-After','3600').status(503).type('text/plain').send('Website temporarily unavailable for scheduled maintenance.');
   res.type('text/plain').sendFile(path.join(__dirname, 'robots.txt'));
 });
 
 app.get('/sitemap.xml', (req, res) => {
+  if (isMaintenanceActive()) return res.set('Retry-After','3600').status(503).type('text/plain').send('Sitemap temporarily unavailable during maintenance.');
   try {
     const sitemapFile = path.join(__dirname, 'sitemap.xml');
     let xml = fs.readFileSync(sitemapFile, 'utf8');
@@ -375,6 +380,7 @@ app.get(['/health', '/healthz'], (req, res) => {
 
 // Contact form submission. The secret key and SMTP credentials stay server-side.
 app.post('/api/contact', async (req, res) => {
+  if (isMaintenanceActive()) return res.status(503).json({ success:false, message:'The website is temporarily unavailable for maintenance. Please try again later.' });
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
   let record = contactAttempts.get(ip);
@@ -673,7 +679,7 @@ function safeAdminReturnPath(value) {
   return (candidate === '/admin' || candidate.startsWith('/admin?') || candidate.startsWith('/admin/')) && !candidate.startsWith('//') && !candidate.includes('\\') && !candidate.startsWith('/admin/login') ? candidate : '/admin';
 }
 
-app.get('/admin',(req,res)=>{if(!adminReady())return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');const u=req.adminSession||getAdminSession(req);if(!u)return res.render('admin/login',{error:'',next:safeAdminReturnPath(req.query.next),turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||'',resetSuccess:req.query.reset==='1'});res.render('admin/dashboard-home',{username:u.username,role:u.role,csrf:u.csrf,announcementCount:expireAnnouncements(readAnnouncements()).length,eventCount:readEvents().length,mediaCount:listMediaFiles().length,userCount:u.role==='administrator'?readAdminUsers().length:null})});
+app.get('/admin',(req,res)=>{if(!adminReady())return res.status(503).send('Admin accounts are not configured. Check the initial administrator environment settings.');const u=req.adminSession||getAdminSession(req);if(!u)return res.render('admin/login',{error:'',next:safeAdminReturnPath(req.query.next),turnstileSiteKey:process.env.TURNSTILE_SITE_KEY||'',resetSuccess:req.query.reset==='1'});res.render('admin/dashboard-home',{username:u.username,role:u.role,csrf:u.csrf,announcementCount:expireAnnouncements(readAnnouncements()).length,eventCount:readEvents().length,mediaCount:listMediaFiles().length,userCount:u.role==='administrator'?readAdminUsers().length:null,maintenanceStatus:maintenanceStatus()})});
 app.get('/admin/announcements',requireAdmin,(req,res)=>{const u=req.adminSession,announcements=expireAnnouncements(readAnnouncements());res.render('admin/dashboard',{username:u.username,role:u.role,csrf:u.csrf,announcements,editing:announcements.find(x=>x.id===req.query.edit)||null,saved:req.query.saved==='1',uploadedImage:safeAnnouncementImage(req.query.image),nowNZ:nzDateTime(),error:''})});
 
 app.get('/admin/account',requireAdmin,(req,res)=>res.render('admin/account',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,saved:req.query.saved==='1',error:''}));
@@ -684,7 +690,9 @@ app.post('/admin/users/update',requireAdministrator,(req,res)=>{if(!validCsrf(re
 app.post('/admin/users/password',requireAdministrator,async(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.body.id),pw=typeof req.body.newPassword==='string'?req.body.newPassword:'';if(!u)return res.status(404).send('Account not found.');if(String(u.username||'').toLowerCase()==='webmaster')return res.status(403).send('The protected webmaster account password cannot be reset by another administrator.');if(pw.length<12)return res.status(400).send('Passwords must be at least 12 characters long.');u.passwordHash=await hashAdminPassword(pw);u.sessionVersion=Number(u.sessionVersion||1)+1;u.updatedAt=new Date().toISOString();writeAdminUsers(users);res.redirect(303,'/admin/users?saved=1')});
 app.post('/admin/users/delete',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const users=readAdminUsers(),u=users.find(x=>x.id===req.body.id);if(!u)return res.status(404).send('Account not found.');if(String(u.username||'').toLowerCase()==='webmaster')return res.status(403).send('The protected webmaster account cannot be removed.');if(u.id===req.adminSession.userId)return res.status(400).send('You cannot remove your own account.');if(u.role==='administrator'&&u.enabled&&users.filter(x=>x.role==='administrator'&&x.enabled).length<=1)return res.status(400).send('The last active administrator cannot be removed.');writeAdminUsers(users.filter(x=>x.id!==u.id));res.redirect(303,'/admin/users?saved=1')});
 app.get('/admin/settings',requireAdministrator,(req,res)=>res.render('admin/settings',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,settings:readAdminSettings(),saved:req.query.saved==='1'}));
-app.post('/admin/settings',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const sessionMinutes=[30,45,60].includes(Number(req.body.sessionMinutes))?Number(req.body.sessionMinutes):45;writeAdminSettings({sessionMinutes});res.redirect(303,'/admin/settings?saved=1')});
+app.post('/admin/settings',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const sessionMinutes=[30,45,60].includes(Number(req.body.sessionMinutes))?Number(req.body.sessionMinutes):45;writeAdminSettings({...readAdminSettings(),sessionMinutes});res.redirect(303,'/admin/settings?saved=1')});
+app.get('/admin/maintenance',requireAdministrator,(req,res)=>{const settings=readAdminSettings().maintenance;res.render('admin/maintenance',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,maintenance:settings,status:maintenanceStatus(),startInput:formatNZDateTimeInput(settings.startAt),endInput:formatNZDateTimeInput(settings.endAt),saved:req.query.saved==='1',error:''})});
+app.post('/admin/maintenance',requireAdministrator,(req,res)=>{if(!validCsrf(req,res))return;const old=readAdminSettings(),enabled=req.body.enabled==='on',title=cleanText(req.body.title,100)||'We’ll be back shortly',message=cleanMultilineText(req.body.message,1000)||'We’re carrying out scheduled maintenance to improve the Avon Toastmasters website. Please check back soon.',startValue=cleanText(req.body.startAt,16),endValue=cleanText(req.body.endAt,16);const parseLocal=value=>{if(!value)return '';if(!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(value))throw new Error('Enter valid New Zealand date and time values.');const [date,time]=value.split('T');return eventLocalDateTimeToUtc(date,time).toISOString()};let startAt='',endAt='';try{startAt=parseLocal(startValue);endAt=parseLocal(endValue)}catch(error){return res.status(400).render('admin/maintenance',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,maintenance:{...old.maintenance,enabled,title,message},status:maintenanceStatus(),startInput:startValue,endInput:endValue,saved:false,error:error.message})}if(startAt&&endAt&&Date.parse(endAt)<=Date.parse(startAt))return res.status(400).render('admin/maintenance',{username:req.adminSession.username,role:req.adminSession.role,csrf:req.adminSession.csrf,maintenance:{...old.maintenance,enabled,title,message},status:maintenanceStatus(),startInput:startValue,endInput:endValue,saved:false,error:'The maintenance end time must be after the start time.'});writeAdminSettings({...old,maintenance:{enabled,title,message,startAt,endAt,updatedAt:new Date().toISOString(),updatedBy:req.adminSession.username}});res.redirect(303,'/admin/maintenance?saved=1')});
 app.get('/admin/activity', requireAdmin, (req, res) => {
   res.json({ ok: true, expiresAt: req.adminSession.expiresAt });
 });
@@ -985,6 +993,20 @@ app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
   dotfiles: 'deny'
 }));
+
+// Public maintenance gate. Static assets and admin routes remain available; authenticated
+// administrators can browse the real site while everyone else receives HTTP 503.
+app.use((req,res,next)=>{
+  if(!isMaintenanceActive())return next();
+  if(req.path==='/health'||req.path==='/healthz'||req.path.startsWith('/admin'))return next();
+  const session=getAdminSession(req);
+  if(session){res.locals.maintenancePreview=true;return next();}
+  const maintenance=readAdminSettings().maintenance;
+  res.set('Retry-After','3600').set('X-Robots-Tag','noindex, nofollow').set('Cache-Control','no-store');
+  if(req.path.startsWith('/api/'))return res.status(503).json({success:false,message:'The website is temporarily unavailable for maintenance.'});
+  if(req.method!=='GET'&&req.method!=='HEAD')return res.status(503).type('text/plain').send('The website is temporarily unavailable for maintenance.');
+  return res.status(503).render('maintenance',{maintenance});
+});
 
 app.get('/index.html', (req, res) => res.redirect(301, '/'));
 
